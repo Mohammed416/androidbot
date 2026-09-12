@@ -92,11 +92,23 @@ class ScreenCaptureService : Service() {
      * يلتقط إطار واحد حاليًا من الشاشة ويحفظه كملف PNG.
      * يرجع مسار الملف لو نجح، أو null لو فشل.
      */
-    fun captureOnce(): String? {
+        fun captureOnce(): String? {
         val reader = imageReader ?: return null
-        val image = reader.acquireLatestImage() ?: run {
-            Log.w(TAG, "ما في إطار جاهز حاليًا - جرب كمان مرة بعد ثانية")
+
+        var image: android.media.Image? = null
+        var attempts = 0
+        while (image == null && attempts < 15) {
+            image = reader.acquireLatestImage()
+            if (image == null) {
+                Thread.sleep(150)
+                attempts++
+            }
+        }
+
+        if (image == null) {
+            Log.w(TAG, "ما قدرنا نجهز إطار بعد عدة محاولات")
             return null
+        }
         }
 
         try {
