@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AndroidBot</string>
+    <string name="accessibility_service_description">
+        يستخدم هذا التطبيق خدمة الإتاحة لإرسال ضغطات وإيماءات تلقائية داخل تطبيقات أخرى بناءً على إعدادات المستخدم.
+    </string>
+</resources>
