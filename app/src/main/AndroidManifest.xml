@@ -10,7 +10,7 @@
     <application
         android:allowBackup="false"
         android:label="AndroidBot"
-        android:theme="@android:style/Theme.Material.Light">
+        android:theme="@style/Theme.AppCompat.Light">
 
         <!-- الشاشة الرئيسية: تفعيل/إيقاف الخدمة -->
         <activity
