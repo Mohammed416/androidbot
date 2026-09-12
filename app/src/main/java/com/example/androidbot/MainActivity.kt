@@ -1,15 +1,35 @@
 package com.example.androidbot
 
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.os.Handler
 import android.provider.Settings
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
+
+    private val screenCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, result.data)
+            }
+            startForegroundService(serviceIntent)
+            Toast.makeText(this, "تم تفعيل التقاط الشاشة", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "تم رفض صلاحية التقاط الشاشة", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -20,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val statusText = TextView(this).apply {
-            text = "الحالة: تحقق من تفعيل الخدمة"
+            text = "الحالة: تحقق من تفعيل الخدمات"
             textSize = 16f
         }
 
@@ -52,13 +72,51 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val requestCaptureButton = Button(this).apply {
+            text = "٣. فعّل صلاحية التقاط الشاشة"
+            setOnClickListener {
+                val projectionManager =
+                    getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+            }
+        }
+
+        val captureNowButton = Button(this).apply {
+            text = "٤. التقط صورة الشاشة الآن"
+            setOnClickListener {
+                val service = ScreenCaptureService.instance
+                if (service == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "لازم تفعّل صلاحية التقاط الشاشة أول (الزر ٣)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Handler(mainLooper).postDelayed({
+                        val path = service.captureOnce()
+                        if (path != null) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "تم الحفظ: $path",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "فشل الالتقاط - جرب كمان مرة",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }, 300)
+                }
+            }
+        }
+
         root.addView(statusText)
         root.addView(enableButton)
         root.addView(testTapButton)
+        root.addView(requestCaptureButton)
+        root.addView(captureNowButton)
         setContentView(root)
-    }
-
-    override fun onResume() {
-        super.onResume()
     }
 }
