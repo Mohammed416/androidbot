@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Button
 import android.widget.LinearLayout
@@ -13,6 +14,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -92,22 +94,27 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_LONG
                     ).show()
                 } else {
-                    Handler(mainLooper).postDelayed({
+                    Toast.makeText(this@MainActivity, "جاري الالتقاط...", Toast.LENGTH_SHORT).show()
+
+                    // نشغّل عملية الالتقاط على خيط منفصل حتى ما تجمّد الواجهة
+                    thread {
                         val path = service.captureOnce()
-                        if (path != null) {
-                            Toast.makeText(
-                                this@MainActivity,
-                                "تم الحفظ: $path",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        } else {
-                            Toast.makeText(
-                                this@MainActivity,
-                                "فشل الالتقاط - جرب كمان مرة",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                        Handler(Looper.getMainLooper()).post {
+                            if (path != null) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "تم الحفظ: $path",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "فشل الالتقاط - جرب كمان مرة",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
-                    }, 300)
+                    }
                 }
             }
         }
