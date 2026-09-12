@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -90,12 +91,13 @@ class ScreenCaptureService : Service() {
 
     /**
      * يلتقط إطار واحد حاليًا من الشاشة ويحفظه كملف PNG.
+     * فيها إعادة محاولة لأن أول إطار ممكن ياخد وقت بسيط لحد ما يجهز.
      * يرجع مسار الملف لو نجح، أو null لو فشل.
      */
-        fun captureOnce(): String? {
+    fun captureOnce(): String? {
         val reader = imageReader ?: return null
 
-        var image: android.media.Image? = null
+        var image: Image? = null
         var attempts = 0
         while (image == null && attempts < 15) {
             image = reader.acquireLatestImage()
@@ -108,7 +110,6 @@ class ScreenCaptureService : Service() {
         if (image == null) {
             Log.w(TAG, "ما قدرنا نجهز إطار بعد عدة محاولات")
             return null
-        }
         }
 
         try {
