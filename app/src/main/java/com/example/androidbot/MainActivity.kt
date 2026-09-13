@@ -96,7 +96,6 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     Toast.makeText(this@MainActivity, "جاري الالتقاط...", Toast.LENGTH_SHORT).show()
 
-                    // نشغّل عملية الالتقاط على خيط منفصل حتى ما تجمّد الواجهة
                     thread {
                         val path = service.captureOnce()
                         Handler(Looper.getMainLooper()).post {
@@ -107,10 +106,12 @@ class MainActivity : AppCompatActivity() {
                                     Toast.LENGTH_LONG
                                 ).show()
                             } else {
+                                // هلق منعرض رسالة الخطأ الحقيقية بدل رسالة عامة
+                                val errorMsg = service.lastError ?: "سبب غير معروف"
                                 Toast.makeText(
                                     this@MainActivity,
-                                    "فشل الالتقاط - جرب كمان مرة",
-                                    Toast.LENGTH_SHORT
+                                    "فشل: $errorMsg",
+                                    Toast.LENGTH_LONG
                                 ).show()
                             }
                         }
