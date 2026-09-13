@@ -40,7 +40,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // تفعيل مكتبة OpenCV الأصلية - لازم تصير مرة وحدة قبل أي استخدام لها
         val openCvLoaded = OpenCVLoader.initDebug()
 
         val root = LinearLayout(this).apply {
@@ -112,16 +111,24 @@ class MainActivity : AppCompatActivity() {
         val testOpenCvButton = Button(this).apply {
             text = "٥. اختبار: هل OpenCV بيقدر يلاقي صورة داخل صورة؟"
             setOnClickListener {
-                // نصنع صورة كبيرة (تمثل "الشاشة") فيها مربع أحمر صغير بمكان معروف
+                // "الشاشة" الوهمية: خلفية بيضا فيها مربع بلونين (أحمر+أزرق) عشان يصير فيه تباين حقيقي
                 val bigBitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
                 val bigCanvas = Canvas(bigBitmap)
                 bigCanvas.drawColor(Color.WHITE)
-                bigCanvas.drawRect(250f, 150f, 300f, 200f, android.graphics.Paint().apply { color = Color.RED })
+                val bigPaint = android.graphics.Paint()
+                bigPaint.color = Color.RED
+                bigCanvas.drawRect(250f, 150f, 300f, 200f, bigPaint)
+                bigPaint.color = Color.BLUE
+                bigCanvas.drawRect(275f, 150f, 300f, 200f, bigPaint)
 
-                // نصنع "القالب" - نفس المربع الأحمر بس لحاله، بحجم أصغر
+                // القالب: نفس نمط اللونين (نص أحمر نص أزرق) بحجم أصغر
                 val templateBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
                 val templateCanvas = Canvas(templateBitmap)
-                templateCanvas.drawColor(Color.RED)
+                val templatePaint = android.graphics.Paint()
+                templatePaint.color = Color.RED
+                templateCanvas.drawRect(0f, 0f, 50f, 50f, templatePaint)
+                templatePaint.color = Color.BLUE
+                templateCanvas.drawRect(25f, 0f, 50f, 50f, templatePaint)
 
                 val matchResult = ImageMatcher.findTemplate(bigBitmap, templateBitmap, minConfidence = 0.7)
 
