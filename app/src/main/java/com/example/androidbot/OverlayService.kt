@@ -74,7 +74,7 @@ class OverlayService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - initialTouchX).toInt()
                     val dy = (event.rawY - initialTouchY).toInt()
-                    if (abs(dx) > 10 || abs(dy) > 10) isDragging = true
+                    if (abs(dx) > 25 || abs(dy) > 25) isDragging = true
                     params.x = initialX + dx
                     params.y = initialY + dy
                     windowManager.updateViewLayout(view, params)
