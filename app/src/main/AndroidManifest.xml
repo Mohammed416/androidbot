@@ -39,7 +39,7 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-                <!-- خدمة التقاط الشاشة -->
+        <!-- خدمة التقاط الشاشة -->
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
@@ -49,6 +49,13 @@
         <service
             android:name=".OverlayService"
             android:exported="false" />
+
+        <!-- نافذة شفافة لإعادة طلب صلاحية التقاط الشاشة بضغطة واحدة -->
+        <activity
+            android:name=".RequestCaptureActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
 
     </application>
 </manifest>
