@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -15,9 +16,11 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.MediaStore
 import android.util.DisplayMetrics
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -81,7 +84,6 @@ class ScreenCaptureService : Service() {
                 return
             }
 
-            // مطلوب من أندرويد 14 فما فوق: لازم نسجل مستمع قبل إنشاء الشاشة الافتراضية
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.w(TAG, "MediaProjection توقفت من النظام")
@@ -126,8 +128,8 @@ class ScreenCaptureService : Service() {
     }
 
     /**
-     * يلتقط إطار واحد حاليًا من الشاشة ويحفظه كملف PNG.
-     * يرجع مسار الملف لو نجح، أو null لو فشل (تحقق من lastError لمعرفة السبب).
+     * يلتقط إطار واحد حاليًا من الشاشة ويحفظه بمجلد Pictures/Clash العام.
+     * يرجع مسار/رابط الملف لو نجح، أو null لو فشل (تحقق من lastError).
      */
     fun captureOnce(): String? {
         val reader = imageReader
@@ -165,24 +167,64 @@ class ScreenCaptureService : Service() {
             )
             bitmap.copyPixelsFromBuffer(buffer)
 
-            val dir = getExternalFilesDir("captures")
-            if (dir != null && !dir.exists()) dir.mkdirs()
-
-            val file = File(dir, "capture_${System.currentTimeMillis()}.png")
-            FileOutputStream(file).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-            }
-
-            lastError = null
-            Log.i(TAG, "تم حفظ الصورة: ${file.absolutePath}")
-            return file.absolutePath
+            return saveBitmapToPicturesClash(bitmap)
 
         } catch (e: Exception) {
-            lastError = "استثناء أثناء الحفظ: ${e.javaClass.simpleName} - ${e.message}"
+            lastError = "استثناء أثناء المعالجة: ${e.javaClass.simpleName} - ${e.message}"
             Log.e(TAG, "فشل التقاط الصورة", e)
             return null
         } finally {
             image.close()
+        }
+    }
+
+    /**
+     * يحفظ الصورة بمجلد Pictures/Clash عام يقدر يوصله أي مدير ملفات أو معرض صور.
+     */
+    private fun saveBitmapToPicturesClash(bitmap: Bitmap): String? {
+        val filename = "capture_${System.currentTimeMillis()}.png"
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // أندرويد 10 فما فوق: نستخدم MediaStore (التخزين المحمي الحديث)
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Clash")
+                }
+                val uri = contentResolver.insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    contentValues
+                )
+                if (uri == null) {
+                    lastError = "فشل إنشاء الملف بالمعرض (MediaStore رجع null)"
+                    return null
+                }
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                lastError = null
+                Log.i(TAG, "تم الحفظ بالمعرض: $uri")
+                "Pictures/Clash/$filename"
+            } else {
+                // أندرويد 9 فأقل: نكتب مباشرة بمسار الملفات العام
+                @Suppress("DEPRECATION")
+                val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                val clashDir = File(picturesDir, "Clash")
+                if (!clashDir.exists()) clashDir.mkdirs()
+
+                val file = File(clashDir, filename)
+                FileOutputStream(file).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                lastError = null
+                Log.i(TAG, "تم الحفظ: ${file.absolutePath}")
+                file.absolutePath
+            }
+        } catch (e: Exception) {
+            lastError = "فشل الحفظ بالمعرض: ${e.javaClass.simpleName} - ${e.message}"
+            Log.e(TAG, "فشل الحفظ", e)
+            null
         }
     }
 
