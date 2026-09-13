@@ -68,7 +68,7 @@ class ScreenCaptureService : Service() {
             lastError = "لم يتم استلام صلاحية صحيحة من النظام"
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun setupMediaProjection(resultCode: Int, resultData: Intent) {
