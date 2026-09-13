@@ -128,10 +128,10 @@ class ScreenCaptureService : Service() {
     }
 
     /**
-     * يلتقط إطار واحد حاليًا من الشاشة ويحفظه بمجلد Pictures/Clash العام.
-     * يرجع مسار/رابط الملف لو نجح، أو null لو فشل (تحقق من lastError).
+     * يلتقط إطار واحد من الشاشة ويرجعه كـ Bitmap مباشرة بالذاكرة (بدون حفظ ملف).
+     * هاي الدالة يلي رح نستخدمها لتحليل الصورة فورًا.
      */
-    fun captureOnce(): String? {
+    fun captureBitmapOnce(): Bitmap? {
         val reader = imageReader
         if (reader == null) {
             lastError = lastError ?: "الخدمة لسا ما جهزت (imageReader غير موجود) - تأكد إنك ضغطت الزر ٣ ووافقت على مشاركة الشاشة"
@@ -153,7 +153,7 @@ class ScreenCaptureService : Service() {
             return null
         }
 
-        try {
+        return try {
             val planes = image.planes
             val buffer = planes[0].buffer
             val pixelStride = planes[0].pixelStride
@@ -166,27 +166,30 @@ class ScreenCaptureService : Service() {
                 Bitmap.Config.ARGB_8888
             )
             bitmap.copyPixelsFromBuffer(buffer)
-
-            return saveBitmapToPicturesClash(bitmap)
-
+            lastError = null
+            bitmap
         } catch (e: Exception) {
             lastError = "استثناء أثناء المعالجة: ${e.javaClass.simpleName} - ${e.message}"
             Log.e(TAG, "فشل التقاط الصورة", e)
-            return null
+            null
         } finally {
             image.close()
         }
     }
 
     /**
-     * يحفظ الصورة بمجلد Pictures/Clash عام يقدر يوصله أي مدير ملفات أو معرض صور.
+     * يلتقط إطار ويحفظه بمجلد Pictures/Clash العام (نفس السلوك السابق).
      */
+    fun captureOnce(): String? {
+        val bitmap = captureBitmapOnce() ?: return null
+        return saveBitmapToPicturesClash(bitmap)
+    }
+
     private fun saveBitmapToPicturesClash(bitmap: Bitmap): String? {
         val filename = "capture_${System.currentTimeMillis()}.png"
 
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // أندرويد 10 فما فوق: نستخدم MediaStore (التخزين المحمي الحديث)
                 val contentValues = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                     put(MediaStore.Images.Media.MIME_TYPE, "image/png")
@@ -204,10 +207,8 @@ class ScreenCaptureService : Service() {
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
                 lastError = null
-                Log.i(TAG, "تم الحفظ بالمعرض: $uri")
                 "Pictures/Clash/$filename"
             } else {
-                // أندرويد 9 فأقل: نكتب مباشرة بمسار الملفات العام
                 @Suppress("DEPRECATION")
                 val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
                 val clashDir = File(picturesDir, "Clash")
@@ -218,7 +219,6 @@ class ScreenCaptureService : Service() {
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
                 lastError = null
-                Log.i(TAG, "تم الحفظ: ${file.absolutePath}")
                 file.absolutePath
             }
         } catch (e: Exception) {
