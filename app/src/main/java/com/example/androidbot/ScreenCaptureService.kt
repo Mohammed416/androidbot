@@ -56,12 +56,12 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, -1) ?: -1
+        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Int.MIN_VALUE) ?: Int.MIN_VALUE
         val resultData: Intent? = intent?.getParcelableExtra(EXTRA_RESULT_DATA)
 
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        if (resultCode != -1 && resultData != null) {
+        if (resultCode != Int.MIN_VALUE && resultData != null) {
             setupMediaProjection(resultCode, resultData)
         } else {
             lastError = "تشخيص: intent موجود=${intent != null}, resultCode=$resultCode, resultData موجود=${resultData != null}"
@@ -81,6 +81,7 @@ class ScreenCaptureService : Service() {
                 return
             }
 
+            // مطلوب من أندرويد 14 فما فوق: لازم نسجل مستمع قبل إنشاء الشاشة الافتراضية
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.w(TAG, "MediaProjection توقفت من النظام")
@@ -124,6 +125,10 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    /**
+     * يلتقط إطار واحد حاليًا من الشاشة ويحفظه كملف PNG.
+     * يرجع مسار الملف لو نجح، أو null لو فشل (تحقق من lastError لمعرفة السبب).
+     */
     fun captureOnce(): String? {
         val reader = imageReader
         if (reader == null) {
