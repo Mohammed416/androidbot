@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"
@@ -38,11 +39,16 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- خدمة التقاط الشاشة -->
+                <!-- خدمة التقاط الشاشة -->
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <!-- خدمة النافذة العائمة -->
+        <service
+            android:name=".OverlayService"
+            android:exported="false" />
 
     </application>
 </manifest>
