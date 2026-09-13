@@ -38,8 +38,8 @@ object ImageMatcher {
             Utils.bitmapToMat(template, templateMat)
 
             // تحويل لتدرج رمادي بيسرّع المقارنة وبيقلل تأثير اختلاف الألوان الطفيف
-            Imgproc.cvtColor(screenMat, screenMat, Imgproc.COLOR_BGR2GRAY)
-            Imgproc.cvtColor(templateMat, templateMat, Imgproc.COLOR_BGR2GRAY)
+            Imgproc.cvtColor(screenMat, screenMat, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(templateMat, templateMat, Imgproc.COLOR_RGBA2GRAY)
 
             val resultCols = screenMat.cols() - templateMat.cols() + 1
             val resultRows = screenMat.rows() - templateMat.rows() + 1
