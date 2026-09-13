@@ -6,7 +6,6 @@ import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.Mat
-import org.opencv.core.MinMaxLocResult
 import org.opencv.imgproc.Imgproc
 
 /**
@@ -53,7 +52,8 @@ object ImageMatcher {
             val result = Mat(resultRows, resultCols, org.opencv.core.CvType.CV_32FC1)
             Imgproc.matchTemplate(screenMat, templateMat, result, Imgproc.TM_CCOEFF_NORMED)
 
-            val mmr: MinMaxLocResult = Core.minMaxLoc(result)
+    
+            val mmr: Core.MinMaxLocResult = Core.minMaxLoc(result)
             val confidence = mmr.maxVal
 
             screenMat.release()
