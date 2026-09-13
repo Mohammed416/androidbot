@@ -16,10 +16,6 @@ import android.widget.Toast
 import kotlin.concurrent.thread
 import kotlin.math.abs
 
-/**
- * خدمة النافذة العائمة - بترسم زر صغير يضل ظاهر فوق أي تطبيق (بما فيه اللعبة).
- * الضغطة عليه (بدون سحب) بتشغّل نفس اختبار المطابقة، فتقدر تختبر وانت واقف جوا اللعبة نفسها.
- */
 class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
@@ -96,8 +92,15 @@ class OverlayService : Service() {
 
     private fun runDetectionTest() {
         val captureService = ScreenCaptureService.instance
-        if (captureService == null) {
-            Toast.makeText(this, "لازم تفعّل صلاحية التقاط الشاشة أول من التطبيق الرئيسي", Toast.LENGTH_LONG).show()
+
+        // لو الخدمة مش موجودة أصلاً أو موجودة بس مش جاهزة (توقفت الصلاحية)،
+        // نفتح نافذة إعادة الطلب السريعة بدل ما نعطي خطأ بس
+        if (captureService == null || !captureService.isReady()) {
+            Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
+            val intent = Intent(this, RequestCaptureActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
             return
         }
 
