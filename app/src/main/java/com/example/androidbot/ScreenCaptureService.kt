@@ -46,7 +46,6 @@ class ScreenCaptureService : Service() {
     private var screenHeight = 0
     private var screenDensity = 0
 
-    // رسالة آخر خطأ صار - عشان نقدر نعرضها بالواجهة لأنه ما في وصول لـ Logcat بدون كمبيوتر
     var lastError: String? = null
         private set
 
@@ -65,7 +64,7 @@ class ScreenCaptureService : Service() {
         if (resultCode != -1 && resultData != null) {
             setupMediaProjection(resultCode, resultData)
         } else {
-            lastError = "لم يتم استلام صلاحية صحيحة من النظام"
+            lastError = "تشخيص: intent موجود=${intent != null}, resultCode=$resultCode, resultData موجود=${resultData != null}"
         }
 
         return START_NOT_STICKY
@@ -82,8 +81,6 @@ class ScreenCaptureService : Service() {
                 return
             }
 
-            // مطلوب من أندرويد 14 فما فوق: لازم نسجل مستمع قبل إنشاء الشاشة الافتراضية
-            // وإلا العملية بتفشل بصمت بدون ما تعطي أي صورة
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.w(TAG, "MediaProjection توقفت من النظام")
@@ -127,11 +124,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    /**
-     * يلتقط إطار واحد حاليًا من الشاشة ويحفظه كملف PNG.
-     * فيها إعادة محاولة لأن أول إطار ممكن ياخد وقت بسيط لحد ما يجهز.
-     * يرجع مسار الملف لو نجح، أو null لو فشل (تحقق من lastError لمعرفة السبب).
-     */
     fun captureOnce(): String? {
         val reader = imageReader
         if (reader == null) {
