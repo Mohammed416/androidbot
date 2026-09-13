@@ -3,6 +3,9 @@ package com.example.androidbot
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import org.opencv.android.OpenCVLoader
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -36,13 +40,20 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // تفعيل مكتبة OpenCV الأصلية - لازم تصير مرة وحدة قبل أي استخدام لها
+        val openCvLoaded = OpenCVLoader.initDebug()
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 96, 48, 48)
         }
 
         val statusText = TextView(this).apply {
-            text = "الحالة: تحقق من تفعيل الخدمات"
+            text = if (openCvLoaded) {
+                "الحالة: OpenCV تحمّلت بنجاح ✅"
+            } else {
+                "الحالة: فشل تحميل OpenCV ❌"
+            }
             textSize = 16f
         }
 
@@ -58,18 +69,10 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 val service = BotAccessibilityService.instance
                 if (service == null) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "الخدمة مش مفعّلة - فعّلها أول من الإعدادات",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this@MainActivity, "الخدمة مش مفعّلة - فعّلها أول من الإعدادات", Toast.LENGTH_LONG).show()
                 } else {
                     service.performTap(500f, 800f)
-                    Toast.makeText(
-                        this@MainActivity,
-                        "تم إرسال ضغطة تجريبية عند (500, 800)",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(this@MainActivity, "تم إرسال ضغطة تجريبية عند (500, 800)", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -88,34 +91,52 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 val service = ScreenCaptureService.instance
                 if (service == null) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "لازم تفعّل صلاحية التقاط الشاشة أول (الزر ٣)",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this@MainActivity, "لازم تفعّل صلاحية التقاط الشاشة أول (الزر ٣)", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(this@MainActivity, "جاري الالتقاط...", Toast.LENGTH_SHORT).show()
-
                     thread {
                         val path = service.captureOnce()
                         Handler(Looper.getMainLooper()).post {
                             if (path != null) {
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    "تم الحفظ: $path",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                Toast.makeText(this@MainActivity, "تم الحفظ: $path", Toast.LENGTH_LONG).show()
                             } else {
-                                // هلق منعرض رسالة الخطأ الحقيقية بدل رسالة عامة
                                 val errorMsg = service.lastError ?: "سبب غير معروف"
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    "فشل: $errorMsg",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                Toast.makeText(this@MainActivity, "فشل: $errorMsg", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
+                }
+            }
+        }
+
+        val testOpenCvButton = Button(this).apply {
+            text = "٥. اختبار: هل OpenCV بيقدر يلاقي صورة داخل صورة؟"
+            setOnClickListener {
+                // نصنع صورة كبيرة (تمثل "الشاشة") فيها مربع أحمر صغير بمكان معروف
+                val bigBitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+                val bigCanvas = Canvas(bigBitmap)
+                bigCanvas.drawColor(Color.WHITE)
+                bigCanvas.drawRect(250f, 150f, 300f, 200f, android.graphics.Paint().apply { color = Color.RED })
+
+                // نصنع "القالب" - نفس المربع الأحمر بس لحاله، بحجم أصغر
+                val templateBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
+                val templateCanvas = Canvas(templateBitmap)
+                templateCanvas.drawColor(Color.RED)
+
+                val matchResult = ImageMatcher.findTemplate(bigBitmap, templateBitmap, minConfidence = 0.7)
+
+                if (matchResult.found) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "نجح! لقى المربع عند (${matchResult.point?.x}, ${matchResult.point?.y}) بثقة ${matchResult.confidence}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "فشل - ما لقى المطابقة (ثقة: ${matchResult.confidence})",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -125,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(testTapButton)
         root.addView(requestCaptureButton)
         root.addView(captureNowButton)
+        root.addView(testOpenCvButton)
         setContentView(root)
     }
 }
