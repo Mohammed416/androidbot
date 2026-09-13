@@ -52,6 +52,11 @@ class ScreenCaptureService : Service() {
     var lastError: String? = null
         private set
 
+    /**
+     * هل الخدمة جاهزة فعليًا لالتقاط صور؟ (يعني عندها Virtual Display شغال)
+     */
+    fun isReady(): Boolean = virtualDisplay != null && imageReader != null
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -129,7 +134,6 @@ class ScreenCaptureService : Service() {
 
     /**
      * يلتقط إطار واحد من الشاشة ويرجعه كـ Bitmap مباشرة بالذاكرة (بدون حفظ ملف).
-     * هاي الدالة يلي رح نستخدمها لتحليل الصورة فورًا.
      */
     fun captureBitmapOnce(): Bitmap? {
         val reader = imageReader
@@ -178,7 +182,7 @@ class ScreenCaptureService : Service() {
     }
 
     /**
-     * يلتقط إطار ويحفظه بمجلد Pictures/Clash العام (نفس السلوك السابق).
+     * يلتقط إطار ويحفظه بمجلد Pictures/Clash العام.
      */
     fun captureOnce(): String? {
         val bitmap = captureBitmapOnce() ?: return null
