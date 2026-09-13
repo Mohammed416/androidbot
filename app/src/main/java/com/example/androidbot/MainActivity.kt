@@ -8,6 +8,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -159,7 +161,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, "جاري المقارنة...", Toast.LENGTH_SHORT).show()
 
                 thread {
-                    // نحمّل صورة القالب الحقيقية من مجلد assets
                     val templateBitmap = try {
                         assets.open("template_attack_button.jpg").use { stream ->
                             BitmapFactory.decodeStream(stream)
@@ -209,6 +210,31 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val overlayButton = Button(this).apply {
+            text = "٧. فعّل الزر العائم (يشتغل فوق اللعبة)"
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this@MainActivity)) {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "فعّل صلاحية \"الظهور فوق التطبيقات الأخرى\" ثم ارجع اضغط هالزر مرة ثانية",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    startService(Intent(this@MainActivity, OverlayService::class.java))
+                    Toast.makeText(
+                        this@MainActivity,
+                        "تم تفعيل الزر العائم - رح تلاقيه فوق أي تطبيق تفتحه، اضغطه لتشغيل الفحص",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
         root.addView(statusText)
         root.addView(enableButton)
         root.addView(testTapButton)
@@ -216,6 +242,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(captureNowButton)
         root.addView(testOpenCvButton)
         root.addView(testRealTemplateButton)
+        root.addView(overlayButton)
         setContentView(root)
     }
 }
