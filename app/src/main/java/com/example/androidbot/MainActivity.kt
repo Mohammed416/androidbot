@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.media.projection.MediaProjectionManager
@@ -111,7 +112,6 @@ class MainActivity : AppCompatActivity() {
         val testOpenCvButton = Button(this).apply {
             text = "٥. اختبار: هل OpenCV بيقدر يلاقي صورة داخل صورة؟"
             setOnClickListener {
-                // "الشاشة" الوهمية: خلفية بيضا فيها مربع بلونين (أحمر+أزرق) عشان يصير فيه تباين حقيقي
                 val bigBitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
                 val bigCanvas = Canvas(bigBitmap)
                 bigCanvas.drawColor(Color.WHITE)
@@ -121,7 +121,6 @@ class MainActivity : AppCompatActivity() {
                 bigPaint.color = Color.BLUE
                 bigCanvas.drawRect(275f, 150f, 300f, 200f, bigPaint)
 
-                // القالب: نفس نمط اللونين (نص أحمر نص أزرق) بحجم أصغر
                 val templateBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
                 val templateCanvas = Canvas(templateBitmap)
                 val templatePaint = android.graphics.Paint()
@@ -148,12 +147,75 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val testRealTemplateButton = Button(this).apply {
+            text = "٦. اختبار: قارن زر الهجوم الحقيقي مع الشاشة الحالية"
+            setOnClickListener {
+                val service = ScreenCaptureService.instance
+                if (service == null) {
+                    Toast.makeText(this@MainActivity, "لازم تفعّل صلاحية التقاط الشاشة أول (الزر ٣)", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+
+                Toast.makeText(this@MainActivity, "جاري المقارنة...", Toast.LENGTH_SHORT).show()
+
+                thread {
+                    // نحمّل صورة القالب الحقيقية من مجلد assets
+                    val templateBitmap = try {
+                        assets.open("template_attack_button.jpg").use { stream ->
+                            BitmapFactory.decodeStream(stream)
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    Handler(Looper.getMainLooper()).post {
+                        if (templateBitmap == null) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "فشل تحميل صورة القالب - تأكد إنها موجودة بمسار app/src/main/assets/template_attack_button.jpg",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@post
+                        }
+
+                        thread {
+                            val screenBitmap = service.captureBitmapOnce()
+                            Handler(Looper.getMainLooper()).post {
+                                if (screenBitmap == null) {
+                                    val errorMsg = service.lastError ?: "سبب غير معروف"
+                                    Toast.makeText(this@MainActivity, "فشل التقاط الشاشة: $errorMsg", Toast.LENGTH_LONG).show()
+                                    return@post
+                                }
+
+                                val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+
+                                if (result.found) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "لقى الزر! عند (${result.point?.x?.toInt()}, ${result.point?.y?.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "ما لقاه بهاي الشاشة (أعلى ثقة: ${"%.2f".format(result.confidence)}) - جرب من شاشة اللعبة الرئيسية",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         root.addView(statusText)
         root.addView(enableButton)
         root.addView(testTapButton)
         root.addView(requestCaptureButton)
         root.addView(captureNowButton)
         root.addView(testOpenCvButton)
+        root.addView(testRealTemplateButton)
         setContentView(root)
     }
 }
