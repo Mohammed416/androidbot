@@ -91,61 +91,69 @@ class OverlayService : Service() {
     }
 
     private fun runDetectionTest() {
-        val captureService = ScreenCaptureService.instance
+        try {
+            Toast.makeText(this, "تم الضغط - جاري التحقق...", Toast.LENGTH_SHORT).show()
 
-        // لو الخدمة مش موجودة أصلاً أو موجودة بس مش جاهزة (توقفت الصلاحية)،
-        // نفتح نافذة إعادة الطلب السريعة بدل ما نعطي خطأ بس
-        if (captureService == null || !captureService.isReady()) {
-            Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
-            val intent = Intent(this, RequestCaptureActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(intent)
-            return
-        }
+            val captureService = ScreenCaptureService.instance
 
-        Toast.makeText(this, "جاري الفحص...", Toast.LENGTH_SHORT).show()
-
-        thread {
-            val templateBitmap = try {
-                assets.open("template_attack_button.jpg").use { stream ->
-                    BitmapFactory.decodeStream(stream)
+            if (captureService == null || !captureService.isReady()) {
+                Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
+                val intent = Intent(this, RequestCaptureActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-            } catch (e: Exception) {
-                null
+                startActivity(intent)
+                return
             }
 
-            if (templateBitmap == null) {
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(this, "فشل تحميل صورة القالب", Toast.LENGTH_LONG).show()
+            thread {
+                try {
+                    val templateBitmap = try {
+                        assets.open("template_attack_button.jpg").use { stream ->
+                            BitmapFactory.decodeStream(stream)
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    if (templateBitmap == null) {
+                        Handler(Looper.getMainLooper()).post {
+                            Toast.makeText(this, "فشل تحميل صورة القالب", Toast.LENGTH_LONG).show()
+                        }
+                        return@thread
+                    }
+
+                    val screenBitmap = captureService.captureBitmapOnce()
+                    Handler(Looper.getMainLooper()).post {
+                        if (screenBitmap == null) {
+                            val errorMsg = captureService.lastError ?: "سبب غير معروف"
+                            Toast.makeText(this, "فشل التقاط الشاشة: $errorMsg", Toast.LENGTH_LONG).show()
+                            return@post
+                        }
+
+                        val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+
+                        if (result.found) {
+                            Toast.makeText(
+                                this,
+                                "لقى الزر! عند (${result.point?.x?.toInt()}, ${result.point?.y?.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this,
+                                "ما لقاه (أعلى ثقة: ${"%.2f".format(result.confidence)})",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(this, "خطأ داخلي: ${e.javaClass.simpleName} - ${e.message}", Toast.LENGTH_LONG).show()
+                    }
                 }
-                return@thread
             }
-
-            val screenBitmap = captureService.captureBitmapOnce()
-            Handler(Looper.getMainLooper()).post {
-                if (screenBitmap == null) {
-                    val errorMsg = captureService.lastError ?: "سبب غير معروف"
-                    Toast.makeText(this, "فشل التقاط الشاشة: $errorMsg", Toast.LENGTH_LONG).show()
-                    return@post
-                }
-
-                val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
-
-                if (result.found) {
-                    Toast.makeText(
-                        this,
-                        "لقى الزر! عند (${result.point?.x?.toInt()}, ${result.point?.y?.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    Toast.makeText(
-                        this,
-                        "ما لقاه (أعلى ثقة: ${"%.2f".format(result.confidence)})",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "خطأ بالضغطة نفسها: ${e.javaClass.simpleName} - ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
