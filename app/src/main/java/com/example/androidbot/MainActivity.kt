@@ -43,6 +43,16 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // طلب صلاحية الإشعارات فعليًا - إلزامي من أندرويد 13 فما فوق
+        // وإلا الخدمات الأمامية (Foreground Services) ما بتضل شغالة صحيح
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+            }
+        }
+
         val openCvLoaded = OpenCVLoader.initDebug()
 
         val root = LinearLayout(this).apply {
