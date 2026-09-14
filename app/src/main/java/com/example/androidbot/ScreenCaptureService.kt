@@ -180,7 +180,7 @@ class ScreenCaptureService : Service() {
         return saveBitmapToPicturesClash(bitmap)
     }
 
-    private fun saveBitmapToPicturesClash(bitmap: Bitmap): String? {
+    fun saveBitmapToPicturesClash(bitmap: Bitmap): String? {
         val filename = "capture_${System.currentTimeMillis()}.png"
 
         return try {
