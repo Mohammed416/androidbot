@@ -100,7 +100,7 @@ class ScreenCaptureService : Service() {
             val metrics = DisplayMetrics()
             val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
             @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
+            windowManager.defaultDisplay.getMetrics(metrics)
 
             screenWidth = metrics.widthPixels
             screenHeight = metrics.heightPixels
@@ -129,6 +129,10 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    /**
+     * يلتقط إطار واحد من الشاشة ويرجعه كـ Bitmap مباشرة بالذاكرة (بدون حفظ ملف).
+     * بيقص أي بكسلات فاضية زيادة (Padding) بتنتج عن طريقة تخزين الصورة الداخلية.
+     */
     fun captureBitmapOnce(): Bitmap? {
         val reader = imageReader
         if (reader == null) {
@@ -152,20 +156,30 @@ class ScreenCaptureService : Service() {
         }
 
         return try {
+            val actualWidth = image.width
+            val actualHeight = image.height
             val planes = image.planes
             val buffer = planes[0].buffer
             val pixelStride = planes[0].pixelStride
             val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * screenWidth
+            val rowPadding = rowStride - pixelStride * actualWidth
 
-            val bitmap = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
+            val rawBitmap = Bitmap.createBitmap(
+                actualWidth + rowPadding / pixelStride,
+                actualHeight,
                 Bitmap.Config.ARGB_8888
             )
-            bitmap.copyPixelsFromBuffer(buffer)
+            rawBitmap.copyPixelsFromBuffer(buffer)
+
+            // نقص البكسلات الفاضية الزيادة يلي بتظهر كتشويش بحافة الصورة
+            val cleanBitmap = if (rowPadding > 0) {
+                Bitmap.createBitmap(rawBitmap, 0, 0, actualWidth, actualHeight)
+            } else {
+                rawBitmap
+            }
+
             lastError = null
-            bitmap
+            cleanBitmap
         } catch (e: Exception) {
             lastError = "استثناء أثناء المعالجة: ${e.javaClass.simpleName} - ${e.message}"
             Log.e(TAG, "فشل التقاط الصورة", e)
@@ -175,6 +189,9 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    /**
+     * يلتقط إطار ويحفظه بمجلد Pictures/Clash العام.
+     */
     fun captureOnce(): String? {
         val bitmap = captureBitmapOnce() ?: return null
         return saveBitmapToPicturesClash(bitmap)
