@@ -46,9 +46,15 @@
             android:foregroundServiceType="mediaProjection" />
 
         <!-- خدمة النافذة العائمة -->
+        
         <service
             android:name=".OverlayService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="overlay_automation_button" />
+        </service>
 
         <!-- نافذة شفافة لإعادة طلب صلاحية التقاط الشاشة بضغطة واحدة -->
         <activity
