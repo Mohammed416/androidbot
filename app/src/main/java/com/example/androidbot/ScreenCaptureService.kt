@@ -1,264 +1,171 @@
 package com.example.androidbot
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
-import android.content.ContentValues
-import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.Image
-import android.media.ImageReader
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.os.Build
-import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.MediaStore
-import android.util.DisplayMetrics
-import android.util.Log
-import androidx.core.app.NotificationCompat
-import java.io.File
-import java.io.FileOutputStream
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.Toast
+import kotlin.concurrent.thread
+import kotlin.math.abs
 
-class ScreenCaptureService : Service() {
+class OverlayService : Service() {
 
-    companion object {
-        private const val TAG = "ScreenCaptureService"
-        private const val CHANNEL_ID = "screen_capture_channel"
-        private const val NOTIFICATION_ID = 1001
-
-        const val EXTRA_RESULT_CODE = "result_code"
-        const val EXTRA_RESULT_DATA = "result_data"
-
-        var instance: ScreenCaptureService? = null
-            private set
-    }
-
-    private var mediaProjection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
-
-    private var screenWidth = 0
-    private var screenHeight = 0
-    private var screenDensity = 0
-
-    var lastError: String? = null
-        private set
-
-    /**
-     * هل الخدمة جاهزة فعليًا لالتقاط صور؟ (يعني عندها Virtual Display شغال)
-     */
-    fun isReady(): Boolean = virtualDisplay != null && imageReader != null
+    private lateinit var windowManager: WindowManager
+    private var overlayButton: Button? = null
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
-        createNotificationChannel()
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        addOverlayButton()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Int.MIN_VALUE) ?: Int.MIN_VALUE
-        val resultData: Intent? = intent?.getParcelableExtra(EXTRA_RESULT_DATA)
+    private fun addOverlayButton() {
+        val button = Button(this).apply {
+            text = "بوت"
+            alpha = 0.85f
+        }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
-
-        if (resultCode != Int.MIN_VALUE && resultData != null) {
-            setupMediaProjection(resultCode, resultData)
+        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
-            lastError = "تشخيص: intent موجود=${intent != null}, resultCode=$resultCode, resultData موجود=${resultData != null}"
-        }
-
-        return START_NOT_STICKY
-    }
-
-    private fun setupMediaProjection(resultCode: Int, resultData: Intent) {
-        try {
-            val projectionManager =
-                getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
-
-            if (mediaProjection == null) {
-                lastError = "فشل الحصول على MediaProjection - الصلاحية غير صالحة"
-                return
-            }
-
-            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    Log.w(TAG, "MediaProjection توقفت من النظام")
-                    lastError = "توقفت صلاحية التقاط الشاشة - لازم تفعّلها من جديد (الزر ٣)"
-                    virtualDisplay?.release()
-                    imageReader?.close()
-                    virtualDisplay = null
-                    imageReader = null
-                }
-            }, Handler(Looper.getMainLooper()))
-
-            val metrics = DisplayMetrics()
-            val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
             @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getMetrics(metrics)
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
 
-            screenWidth = metrics.widthPixels
-            screenHeight = metrics.heightPixels
-            screenDensity = metrics.densityDpi
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = 0
+        params.y = 300
 
-            imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var isDragging = false
 
-            virtualDisplay = mediaProjection?.createVirtualDisplay(
-                "AndroidBotCapture",
-                screenWidth, screenHeight, screenDensity,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface, null, null
-            )
+        button.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - initialTouchX).toInt()
+                    val dy = (event.rawY - initialTouchY).toInt()
+                    if (abs(dx) > 25 || abs(dy) > 25) isDragging = true
+                    params.x = initialX + dx
+                    params.y = initialY + dy
+                    windowManager.updateViewLayout(view, params)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging) {
+                        runDetectionTest()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
 
-            if (virtualDisplay == null) {
-                lastError = "فشل إنشاء الشاشة الافتراضية (createVirtualDisplay رجعت null)"
+        windowManager.addView(button, params)
+        overlayButton = button
+    }
+
+    private fun runDetectionTest() {
+        try {
+            Toast.makeText(this, "تم الضغط - جاري التحقق...", Toast.LENGTH_SHORT).show()
+
+            val captureService = ScreenCaptureService.instance
+
+            if (captureService == null || !captureService.isReady()) {
+                Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
+                val intent = Intent(this, RequestCaptureActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
                 return
             }
 
-            lastError = null
-            Log.i(TAG, "تم تجهيز التقاط الشاشة: ${screenWidth}x${screenHeight}")
+            thread {
+                try {
+                    val templateBitmap = try {
+                        assets.open("template_attack_button.jpg").use { stream ->
+                            BitmapFactory.decodeStream(stream)
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
 
-        } catch (e: Exception) {
-            lastError = "استثناء أثناء التجهيز: ${e.javaClass.simpleName} - ${e.message}"
-            Log.e(TAG, "فشل إعداد MediaProjection", e)
-        }
-    }
+                    if (templateBitmap == null) {
+                        Handler(Looper.getMainLooper()).post {
+                            Toast.makeText(this, "فشل تحميل صورة القالب", Toast.LENGTH_LONG).show()
+                        }
+                        return@thread
+                    }
 
-    /**
-     * يلتقط إطار واحد من الشاشة ويرجعه كـ Bitmap مباشرة بالذاكرة (بدون حفظ ملف).
-     */
-    fun captureBitmapOnce(): Bitmap? {
-        val reader = imageReader
-        if (reader == null) {
-            lastError = lastError ?: "الخدمة لسا ما جهزت (imageReader غير موجود) - تأكد إنك ضغطت الزر ٣ ووافقت على مشاركة الشاشة"
-            return null
-        }
+                    val screenBitmap = captureService.captureBitmapOnce()
+                    Handler(Looper.getMainLooper()).post {
+                        if (screenBitmap == null) {
+                            val errorMsg = captureService.lastError ?: "سبب غير معروف"
+                            Toast.makeText(this, "فشل التقاط الشاشة: $errorMsg", Toast.LENGTH_LONG).show()
+                            return@post
+                        }
 
-        var image: Image? = null
-        var attempts = 0
-        while (image == null && attempts < 20) {
-            image = reader.acquireLatestImage()
-            if (image == null) {
-                Thread.sleep(200)
-                attempts++
-            }
-        }
+                        val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
 
-        if (image == null) {
-            lastError = "ما وصلت أي صورة من الشاشة بعد ${20 * 200}ms - جرب تتأكد إنك اخترت \"مشاركة الشاشة بأكملها\" مش تطبيق واحد"
-            return null
-        }
-
-        return try {
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * screenWidth
-
-            val bitmap = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            bitmap.copyPixelsFromBuffer(buffer)
-            lastError = null
-            bitmap
-        } catch (e: Exception) {
-            lastError = "استثناء أثناء المعالجة: ${e.javaClass.simpleName} - ${e.message}"
-            Log.e(TAG, "فشل التقاط الصورة", e)
-            null
-        } finally {
-            image.close()
-        }
-    }
-
-    /**
-     * يلتقط إطار ويحفظه بمجلد Pictures/Clash العام.
-     */
-    fun captureOnce(): String? {
-        val bitmap = captureBitmapOnce() ?: return null
-        return saveBitmapToPicturesClash(bitmap)
-    }
-
-    private fun saveBitmapToPicturesClash(bitmap: Bitmap): String? {
-        val filename = "capture_${System.currentTimeMillis()}.png"
-
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, filename)
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Clash")
+                        if (result.found) {
+                            Toast.makeText(
+                                this,
+                                "لقى الزر! عند (${result.point?.x?.toInt()}, ${result.point?.y?.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this,
+                                "ما لقاه (أعلى ثقة: ${"%.2f".format(result.confidence)})",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(this, "خطأ داخلي: ${e.javaClass.simpleName} - ${e.message}", Toast.LENGTH_LONG).show()
+                    }
                 }
-                val uri = contentResolver.insert(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    contentValues
-                )
-                if (uri == null) {
-                    lastError = "فشل إنشاء الملف بالمعرض (MediaStore رجع null)"
-                    return null
-                }
-                contentResolver.openOutputStream(uri)?.use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
-                lastError = null
-                "Pictures/Clash/$filename"
-            } else {
-                @Suppress("DEPRECATION")
-                val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-                val clashDir = File(picturesDir, "Clash")
-                if (!clashDir.exists()) clashDir.mkdirs()
-
-                val file = File(clashDir, filename)
-                FileOutputStream(file).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
-                lastError = null
-                file.absolutePath
             }
         } catch (e: Exception) {
-            lastError = "فشل الحفظ بالمعرض: ${e.javaClass.simpleName} - ${e.message}"
-            Log.e(TAG, "فشل الحفظ", e)
-            null
-        }
-    }
-
-    private fun buildNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AndroidBot")
-            .setContentText("خدمة التقاط الشاشة شغالة")
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setOngoing(true)
-            .build()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "التقاط الشاشة",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            Toast.makeText(this, "خطأ بالضغطة نفسها: ${e.javaClass.simpleName} - ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        virtualDisplay?.release()
-        imageReader?.close()
-        mediaProjection?.stop()
-        instance = null
+        overlayButton?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                // العرض ممكن يكون انشال أصلاً
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
