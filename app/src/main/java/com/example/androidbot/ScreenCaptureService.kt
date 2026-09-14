@@ -52,9 +52,6 @@ class ScreenCaptureService : Service() {
     var lastError: String? = null
         private set
 
-    /**
-     * هل الخدمة جاهزة فعليًا لالتقاط صور؟ (يعني عندها Virtual Display شغال)
-     */
     fun isReady(): Boolean = virtualDisplay != null && imageReader != null
 
     override fun onCreate() {
@@ -103,7 +100,7 @@ class ScreenCaptureService : Service() {
             val metrics = DisplayMetrics()
             val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
             @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getMetrics(metrics)
+            windowManager.defaultDisplay.getRealMetrics(metrics)
 
             screenWidth = metrics.widthPixels
             screenHeight = metrics.heightPixels
@@ -132,9 +129,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    /**
-     * يلتقط إطار واحد من الشاشة ويرجعه كـ Bitmap مباشرة بالذاكرة (بدون حفظ ملف).
-     */
     fun captureBitmapOnce(): Bitmap? {
         val reader = imageReader
         if (reader == null) {
@@ -181,9 +175,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    /**
-     * يلتقط إطار ويحفظه بمجلد Pictures/Clash العام.
-     */
     fun captureOnce(): String? {
         val bitmap = captureBitmapOnce() ?: return null
         return saveBitmapToPicturesClash(bitmap)
