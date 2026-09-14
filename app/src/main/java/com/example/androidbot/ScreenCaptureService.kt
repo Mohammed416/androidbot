@@ -104,31 +104,20 @@ class ScreenCaptureService : Service() {
             @Suppress("DEPRECATION")
             display.getRealMetrics(metrics)
 
-            var rawWidth = metrics.widthPixels
-            var rawHeight = metrics.heightPixels
+            val rawWidth = metrics.widthPixels
+            val rawHeight = metrics.heightPixels
             screenDensity = metrics.densityDpi
 
-            // الأبعاد "الطبيعية" ممكن تكون عمودية دايمًا بغض النظر عن الاتجاه
-            // الفعلي الحالي - نتحقق من الدوران الحالي ونبدّل لو الوضع أفقي
-            @Suppress("DEPRECATION")
-            val rotation = display.rotation
-            val isLandscape = rotation == android.view.Surface.ROTATION_90 ||
-                    rotation == android.view.Surface.ROTATION_270
-
-            if (isLandscape && rawWidth < rawHeight) {
-                val temp = rawWidth
-                rawWidth = rawHeight
-                rawHeight = temp
-            } else if (!isLandscape && rawWidth > rawHeight) {
-                val temp = rawWidth
-                rawWidth = rawHeight
-                rawHeight = temp
+            // نفرض دايمًا إن الأبعاد أفقية (العرض أكبر من الارتفاع) - نبدّل لو لازم
+            if (rawWidth < rawHeight) {
+                screenWidth = rawHeight
+                screenHeight = rawWidth
+            } else {
+                screenWidth = rawWidth
+                screenHeight = rawHeight
             }
 
-            screenWidth = rawWidth
-            screenHeight = rawHeight
-
-            Log.i(TAG, "الدوران الحالي: $rotation - الأبعاد المستخدمة: ${screenWidth}x${screenHeight}")
+            Log.i(TAG, "الأبعاد الخام: ${rawWidth}x${rawHeight} - المستخدمة: ${screenWidth}x${screenHeight}")
 
             imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
 
