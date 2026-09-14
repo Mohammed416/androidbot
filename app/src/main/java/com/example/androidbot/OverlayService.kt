@@ -1,5 +1,8 @@
 package com.example.androidbot
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -13,18 +16,57 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import kotlin.concurrent.thread
 import kotlin.math.abs
 
+/**
+ * خدمة النافذة العائمة - هلق خدمة أمامية حقيقية (Foreground Service) بإشعار دائم،
+ * عشان تضل شغالة فعليًا حتى وانت خارج تطبيق AndroidBot (باللعبة أو أي تطبيق تاني).
+ */
 class OverlayService : Service() {
+
+    companion object {
+        private const val CHANNEL_ID = "overlay_channel"
+        private const val NOTIFICATION_ID = 2002
+    }
 
     private lateinit var windowManager: WindowManager
     private var overlayButton: Button? = null
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         addOverlayButton()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // لازم نستدعي startForeground هون كمان، مش بس onCreate - وإلا أندرويد
+        // ممكن يعتبر الخدمة "خلفية عادية" ويقيّدها برا التطبيق
+        startForeground(NOTIFICATION_ID, buildNotification())
+        return START_STICKY
+    }
+
+    private fun buildNotification(): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("AndroidBot")
+            .setContentText("الزر العائم شغال")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setOngoing(true)
+            .build()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "الزر العائم",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
     }
 
     private fun addOverlayButton() {
@@ -48,8 +90,8 @@ class OverlayService : Service() {
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.TOP or Gravity.START
-        params.x = 0
-        params.y = 300
+        params.x = 100
+        params.y = 400
 
         var initialX = 0
         var initialY = 0
@@ -58,31 +100,36 @@ class OverlayService : Service() {
         var isDragging = false
 
         button.setOnTouchListener { view, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    isDragging = false
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - initialTouchX).toInt()
-                    val dy = (event.rawY - initialTouchY).toInt()
-                    if (abs(dx) > 25 || abs(dy) > 25) isDragging = true
-                    params.x = initialX + dx
-                    params.y = initialY + dy
-                    windowManager.updateViewLayout(view, params)
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!isDragging) {
-                        runDetectionTest()
+            try {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        isDragging = false
+                        true
                     }
-                    true
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = (event.rawX - initialTouchX).toInt()
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        if (abs(dx) > 25 || abs(dy) > 25) isDragging = true
+                        params.x = initialX + dx
+                        params.y = initialY + dy
+                        windowManager.updateViewLayout(view, params)
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!isDragging) {
+                            runDetectionTest()
+                        }
+                        true
+                    }
+                    else -> false
                 }
-                else -> false
+            } catch (e: Exception) {
+                Toast.makeText(this, "خطأ بالسحب: ${e.message}", Toast.LENGTH_SHORT).show()
+                true
             }
         }
 
