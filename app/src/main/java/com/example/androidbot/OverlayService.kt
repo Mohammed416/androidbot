@@ -20,10 +20,6 @@ import androidx.core.app.NotificationCompat
 import kotlin.concurrent.thread
 import kotlin.math.abs
 
-/**
- * خدمة النافذة العائمة - هلق خدمة أمامية حقيقية (Foreground Service) بإشعار دائم،
- * عشان تضل شغالة فعليًا حتى وانت خارج تطبيق AndroidBot (باللعبة أو أي تطبيق تاني).
- */
 class OverlayService : Service() {
 
     companion object {
@@ -42,8 +38,6 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // لازم نستدعي startForeground هون كمان، مش بس onCreate - وإلا أندرويد
-        // ممكن يعتبر الخدمة "خلفية عادية" ويقيّدها برا التطبيق
         startForeground(NOTIFICATION_ID, buildNotification())
         return START_STICKY
     }
@@ -170,15 +164,20 @@ class OverlayService : Service() {
                     }
 
                     val screenBitmap = captureService.captureBitmapOnce()
-                    Handler(Looper.getMainLooper()).post {
-                        if (screenBitmap == null) {
+                    if (screenBitmap == null) {
+                        Handler(Looper.getMainLooper()).post {
                             val errorMsg = captureService.lastError ?: "سبب غير معروف"
                             Toast.makeText(this, "فشل التقاط الشاشة: $errorMsg", Toast.LENGTH_LONG).show()
-                            return@post
                         }
+                        return@thread
+                    }
 
-                        val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+                    // نحفظ نسخة من نفس الصورة يلي استخدمها البوت بالفحص، عشان نقدر نشوفها بالمعرض
+                    val savedPath = captureService.saveBitmapToPicturesClash(screenBitmap)
 
+                    val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+
+                    Handler(Looper.getMainLooper()).post {
                         if (result.found) {
                             Toast.makeText(
                                 this,
@@ -188,7 +187,7 @@ class OverlayService : Service() {
                         } else {
                             Toast.makeText(
                                 this,
-                                "ما لقاه (أعلى ثقة: ${"%.2f".format(result.confidence)})",
+                                "ما لقاه (أعلى ثقة: ${"%.2f".format(result.confidence)}) - محفوظة بالمعرض: $savedPath",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
