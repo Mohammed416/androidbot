@@ -225,8 +225,8 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_LONG
                     ).show()
                 } else {
-                    startService(Intent(this@MainActivity, OverlayService::class.java))
-                    Toast.makeText(
+                    startForegroundService(Intent(this@MainActivity, OverlayService::class.java))
+                    Toast.makeText
                         this@MainActivity,
                         "تم تفعيل الزر العائم - رح تلاقيه فوق أي تطبيق تفتحه، اضغطه لتشغيل الفحص",
                         Toast.LENGTH_LONG
