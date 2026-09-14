@@ -100,7 +100,7 @@ class ScreenCaptureService : Service() {
             val metrics = DisplayMetrics()
             val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
             @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getMetrics(metrics)
+            windowManager.defaultDisplay.getRealMetrics(metrics)
 
             screenWidth = metrics.widthPixels
             screenHeight = metrics.heightPixels
