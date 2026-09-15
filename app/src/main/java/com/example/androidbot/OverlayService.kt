@@ -179,11 +179,24 @@ class OverlayService : Service() {
 
                     Handler(Looper.getMainLooper()).post {
                         if (result.found) {
-                            Toast.makeText(
-                                this,
-                                "لقى الزر! عند (${result.point?.x?.toInt()}, ${result.point?.y?.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            val point = result.point
+                            if (point != null) {
+                                val accessibilityService = BotAccessibilityService.instance
+                                if (accessibilityService != null) {
+                                    accessibilityService.performTap(point.x, point.y)
+                                    Toast.makeText(
+                                        this,
+                                        "لقى الزر وضغطه! عند (${point.x.toInt()}, ${point.y.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        this,
+                                        "لقى الزر بس ما قدر يضغطه - خدمة الإتاحة مش مفعّلة (الزر ١)",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
                         } else {
                             Toast.makeText(
                                 this,
