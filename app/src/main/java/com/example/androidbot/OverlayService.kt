@@ -153,58 +153,70 @@ class OverlayService : Service() {
         Toast.makeText(this, "بدء تسلسل الهجوم الكامل...", Toast.LENGTH_SHORT).show()
 
         thread {
-            // الخطوة 1: زر الهجوم الرئيسي
-            if (!tapWhenFound(captureService, accessibilityService, "template_attack_button.jpg", "زر الهجوم الرئيسي", 6)) return@thread
-            Thread.sleep(1500)
+            // حماية شاملة: أي خطأ أو حتى نفاد ذاكرة لازم يظهر كرسالة، مش يختفي بصمت
+            try {
+                // الخطوة 1: زر الهجوم الرئيسي
+                if (!tapWhenFound(captureService, accessibilityService, "template_attack_button.jpg", "زر الهجوم الرئيسي", 6)) return@thread
+                Thread.sleep(1500)
 
-            // الخطوة 2: زر البحث عن مطابقة
-            if (!tapWhenFound(captureService, accessibilityService, "template_search_button.jpg", "زر البحث عن مطابقة", 6)) return@thread
-            Thread.sleep(3000)
+                // الخطوة 2: زر البحث عن مطابقة
+                if (!tapWhenFound(captureService, accessibilityService, "template_search_button.jpg", "زر البحث عن مطابقة", 6)) return@thread
+                Thread.sleep(3000)
 
-            // الخطوة 3: فحص الموارد واختيار قرية مناسبة (أو تخطيها)
-            var villageAccepted = false
-            var skipAttempts = 0
+                // الخطوة 3: فحص الموارد واختيار قرية مناسبة (أو تخطيها)
+                var villageAccepted = false
+                var skipAttempts = 0
 
-            while (!villageAccepted && skipAttempts < 12) {
-                Thread.sleep(500)
-                val screenBitmap = captureService.captureBitmapOnce()
-                if (screenBitmap == null) {
-                    showToast("فشل التقاط الشاشة أثناء فحص الموارد: ${captureService.lastError}")
+                while (!villageAccepted && skipAttempts < 12) {
+                    Thread.sleep(500)
+                    val screenBitmap = captureService.captureBitmapOnce()
+                    if (screenBitmap == null) {
+                        showToast("فشل التقاط الشاشة أثناء فحص الموارد: ${captureService.lastError}")
+                        return@thread
+                    }
+
+                    val goldRegion = safeCrop(screenBitmap, 130, 130, 220, 60)
+                    val elixirRegion = safeCrop(screenBitmap, 130, 185, 220, 60)
+
+                    val goldAmount = goldRegion?.let { TextReader.readNumber(it) } ?: 0L
+                    val elixirAmount = elixirRegion?.let { TextReader.readNumber(it) } ?: 0L
+
+                    // نحرر الذاكرة فورًا - أهم سطر لمنع تراكم الصور بالذاكرة
+                    goldRegion?.recycle()
+                    elixirRegion?.recycle()
+                    screenBitmap.recycle()
+
+                    showToast("قرية: ذهب $goldAmount - إكسير $elixirAmount")
+
+                    if (goldAmount >= MIN_RESOURCE_THRESHOLD || elixirAmount >= MIN_RESOURCE_THRESHOLD) {
+                        villageAccepted = true
+                    } else {
+                        skipAttempts++
+                        if (!tapWhenFound(captureService, accessibilityService, "template_skip_button.jpg", "زر التخطي", 4)) {
+                            showToast("ما قدر يلاقي زر التخطي")
+                            return@thread
+                        }
+                        Thread.sleep(2000)
+                    }
+                }
+
+                if (!villageAccepted) {
+                    showToast("توقف - ما لقى قرية مناسبة بعد $skipAttempts محاولة تخطي")
                     return@thread
                 }
 
-                // إحداثيات منطقة الذهب والإكسير - محددة من لقطة شاشة حقيقية بدقة 2340x1080
-                val goldRegion = safeCrop(screenBitmap, 130, 130, 220, 60)
-                val elixirRegion = safeCrop(screenBitmap, 130, 185, 220, 60)
+                showToast("لقى قرية مناسبة! جاري الهجوم...")
+                Thread.sleep(500)
 
-                val goldAmount = goldRegion?.let { TextReader.readNumber(it) } ?: 0L
-                val elixirAmount = elixirRegion?.let { TextReader.readNumber(it) } ?: 0L
+                // الخطوة 4: زر الهجوم بالمعركة
+                if (!tapWhenFound(captureService, accessibilityService, "template_battle_attack_button.jpg", "زر الهجوم بالمعركة", 8)) return@thread
 
-                showToast("قرية: ذهب $goldAmount - إكسير $elixirAmount")
+                showToast("تم التسلسل الكامل بنجاح! 🎉")
 
-                if (goldAmount >= MIN_RESOURCE_THRESHOLD || elixirAmount >= MIN_RESOURCE_THRESHOLD) {
-                    villageAccepted = true
-                } else {
-                    skipAttempts++
-                    if (!tapWhenFound(captureService, accessibilityService, "template_skip_button.jpg", "زر التخطي", 4)) {
-                        showToast("ما قدر يلاقي زر التخطي")
-                        return@thread
-                    }
-                    Thread.sleep(2000)
-                }
+            } catch (e: Throwable) {
+                // نلقط أي شي حتى نفاد الذاكرة (OutOfMemoryError) - عشان ما يختفي أي خطأ بصمت
+                showToast("خطأ عام أوقف التسلسل: ${e.javaClass.simpleName} - ${e.message}")
             }
-
-            if (!villageAccepted) {
-                showToast("توقف - ما لقى قرية مناسبة بعد $skipAttempts محاولة تخطي")
-                return@thread
-            }
-
-            showToast("لقى قرية مناسبة! جاري الهجوم...")
-
-            // الخطوة 4: زر الهجوم بالمعركة
-            if (!tapWhenFound(captureService, accessibilityService, "template_battle_attack_button.jpg", "زر الهجوم بالمعركة", 6)) return@thread
-
-            showToast("تم التسلسل الكامل بنجاح! 🎉")
         }
     }
 
@@ -230,11 +242,22 @@ class OverlayService : Service() {
 
             val screenBitmap = captureService.captureBitmapOnce()
             if (screenBitmap == null) {
+                templateBitmap.recycle()
                 showToast("فشل التقاط الشاشة ($description): ${captureService.lastError}")
                 return false
             }
 
-            val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+            val result = try {
+                ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+            } catch (e: Exception) {
+                showToast("خطأ بالمطابقة ($description): ${e.message}")
+                ImageMatcher.MatchResult(found = false)
+            }
+
+            // نحرر الذاكرة فورًا بعد كل محاولة - أهم سطر لمنع النفاد
+            templateBitmap.recycle()
+            screenBitmap.recycle()
+
             if (result.found && result.point != null) {
                 accessibilityService.performTap(result.point.x, result.point.y)
                 showToast("$description: لقى وضغط ✅")
