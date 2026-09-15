@@ -26,6 +26,7 @@ class OverlayService : Service() {
     companion object {
         private const val CHANNEL_ID = "overlay_channel"
         private const val NOTIFICATION_ID = 2002
+        private const val MIN_RESOURCE_THRESHOLD = 1_000_000L
     }
 
     private lateinit var windowManager: WindowManager
@@ -132,21 +133,8 @@ class OverlayService : Service() {
         overlayButton = button
     }
 
-    /**
-     * تسلسل الهجوم الكامل - كل خطوة إلها اسم صورة قالب، ووصف للرسائل.
-     * بين كل خطوة وثانية، منستنى شوي عشان الشاشة الجديدة تتحمل بالكامل.
-     */
-    data class SequenceStep(val templateFileName: String, val description: String, val delayAfterMs: Long)
-
-    private val attackSequence = listOf(
-        SequenceStep("template_attack_button.jpg", "زر الهجوم الرئيسي", 1500L),
-        SequenceStep("template_search_button.jpg", "زر البحث عن مطابقة", 3000L),
-        SequenceStep("template_battle_attack_button.jpg", "زر الهجوم بالمعركة", 1000L)
-    )
-
     private fun runFullSequence() {
         val captureService = ScreenCaptureService.instance
-
         if (captureService == null || !captureService.isReady()) {
             Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
             val intent = Intent(this, RequestCaptureActivity::class.java).apply {
@@ -165,50 +153,109 @@ class OverlayService : Service() {
         Toast.makeText(this, "بدء تسلسل الهجوم الكامل...", Toast.LENGTH_SHORT).show()
 
         thread {
-            for ((index, step) in attackSequence.withIndex()) {
-                val stepNumber = index + 1
-                var found = false
-                var attempts = 0
+            // الخطوة 1: زر الهجوم الرئيسي
+            if (!tapWhenFound(captureService, accessibilityService, "template_attack_button.jpg", "زر الهجوم الرئيسي", 6)) return@thread
+            Thread.sleep(1500)
 
-                // نحاول عدة مرات (مش مرة وحدة بس) لأنه الشاشة ممكن تكون لسا بتتحمل
-                while (!found && attempts < 6) {
-                    val templateBitmap = try {
-                        assets.open(step.templateFileName).use { s -> BitmapFactory.decodeStream(s) }
-                    } catch (e: Exception) {
-                        null
-                    }
+            // الخطوة 2: زر البحث عن مطابقة
+            if (!tapWhenFound(captureService, accessibilityService, "template_search_button.jpg", "زر البحث عن مطابقة", 6)) return@thread
+            Thread.sleep(3000)
 
-                    if (templateBitmap == null) {
-                        showToast("فشل تحميل قالب: ${step.templateFileName}")
-                        return@thread
-                    }
+            // الخطوة 3: فحص الموارد واختيار قرية مناسبة (أو تخطيها)
+            var villageAccepted = false
+            var skipAttempts = 0
 
-                    val screenBitmap = captureService.captureBitmapOnce()
-                    if (screenBitmap == null) {
-                        showToast("فشل التقاط الشاشة بالخطوة $stepNumber: ${captureService.lastError}")
-                        return@thread
-                    }
-
-                    val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
-
-                    if (result.found && result.point != null) {
-                        accessibilityService.performTap(result.point.x, result.point.y)
-                        showToast("خطوة $stepNumber (${step.description}): لقى وضغط ✅")
-                        found = true
-                        Thread.sleep(step.delayAfterMs)
-                    } else {
-                        attempts++
-                        Thread.sleep(500)
-                    }
+            while (!villageAccepted && skipAttempts < 12) {
+                Thread.sleep(500)
+                val screenBitmap = captureService.captureBitmapOnce()
+                if (screenBitmap == null) {
+                    showToast("فشل التقاط الشاشة أثناء فحص الموارد: ${captureService.lastError}")
+                    return@thread
                 }
 
-                if (!found) {
-                    showToast("توقف عند خطوة $stepNumber (${step.description}) - ما لقاها بعد عدة محاولات")
-                    return@thread
+                // إحداثيات منطقة الذهب والإكسير - محددة من لقطة شاشة حقيقية بدقة 2340x1080
+                val goldRegion = safeCrop(screenBitmap, 130, 130, 220, 60)
+                val elixirRegion = safeCrop(screenBitmap, 130, 185, 220, 60)
+
+                val goldAmount = goldRegion?.let { TextReader.readNumber(it) } ?: 0L
+                val elixirAmount = elixirRegion?.let { TextReader.readNumber(it) } ?: 0L
+
+                showToast("قرية: ذهب $goldAmount - إكسير $elixirAmount")
+
+                if (goldAmount >= MIN_RESOURCE_THRESHOLD || elixirAmount >= MIN_RESOURCE_THRESHOLD) {
+                    villageAccepted = true
+                } else {
+                    skipAttempts++
+                    if (!tapWhenFound(captureService, accessibilityService, "template_skip_button.jpg", "زر التخطي", 4)) {
+                        showToast("ما قدر يلاقي زر التخطي")
+                        return@thread
+                    }
+                    Thread.sleep(2000)
                 }
             }
 
+            if (!villageAccepted) {
+                showToast("توقف - ما لقى قرية مناسبة بعد $skipAttempts محاولة تخطي")
+                return@thread
+            }
+
+            showToast("لقى قرية مناسبة! جاري الهجوم...")
+
+            // الخطوة 4: زر الهجوم بالمعركة
+            if (!tapWhenFound(captureService, accessibilityService, "template_battle_attack_button.jpg", "زر الهجوم بالمعركة", 6)) return@thread
+
             showToast("تم التسلسل الكامل بنجاح! 🎉")
+        }
+    }
+
+    private fun tapWhenFound(
+        captureService: ScreenCaptureService,
+        accessibilityService: BotAccessibilityService,
+        templateFileName: String,
+        description: String,
+        maxAttempts: Int
+    ): Boolean {
+        var attempts = 0
+        while (attempts < maxAttempts) {
+            val templateBitmap = try {
+                assets.open(templateFileName).use { s -> BitmapFactory.decodeStream(s) }
+            } catch (e: Exception) {
+                null
+            }
+
+            if (templateBitmap == null) {
+                showToast("فشل تحميل قالب: $templateFileName")
+                return false
+            }
+
+            val screenBitmap = captureService.captureBitmapOnce()
+            if (screenBitmap == null) {
+                showToast("فشل التقاط الشاشة ($description): ${captureService.lastError}")
+                return false
+            }
+
+            val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
+            if (result.found && result.point != null) {
+                accessibilityService.performTap(result.point.x, result.point.y)
+                showToast("$description: لقى وضغط ✅")
+                return true
+            }
+            attempts++
+            Thread.sleep(500)
+        }
+        showToast("ما لقى: $description بعد $maxAttempts محاولة")
+        return false
+    }
+
+    private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
+        return try {
+            val safeX = x.coerceIn(0, bitmap.width - 1)
+            val safeY = y.coerceIn(0, bitmap.height - 1)
+            val safeW = w.coerceAtMost(bitmap.width - safeX)
+            val safeH = h.coerceAtMost(bitmap.height - safeY)
+            Bitmap.createBitmap(bitmap, safeX, safeY, safeW, safeH)
+        } catch (e: Exception) {
+            null
         }
     }
 
