@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.os.Build
@@ -115,7 +116,7 @@ class OverlayService : Service() {
                     }
                     MotionEvent.ACTION_UP -> {
                         if (!isDragging) {
-                            runDetectionTest()
+                            runFullSequence()
                         }
                         true
                     }
@@ -131,88 +132,89 @@ class OverlayService : Service() {
         overlayButton = button
     }
 
-    private fun runDetectionTest() {
-        try {
-            Toast.makeText(this, "تم الضغط - جاري التحقق...", Toast.LENGTH_SHORT).show()
+    /**
+     * تسلسل الهجوم الكامل - كل خطوة إلها اسم صورة قالب، ووصف للرسائل.
+     * بين كل خطوة وثانية، منستنى شوي عشان الشاشة الجديدة تتحمل بالكامل.
+     */
+    data class SequenceStep(val templateFileName: String, val description: String, val delayAfterMs: Long)
 
-            val captureService = ScreenCaptureService.instance
+    private val attackSequence = listOf(
+        SequenceStep("template_attack_button.jpg", "زر الهجوم الرئيسي", 1500L),
+        SequenceStep("template_search_button.jpg", "زر البحث عن مطابقة", 3000L),
+        SequenceStep("template_battle_attack_button.jpg", "زر الهجوم بالمعركة", 1000L)
+    )
 
-            if (captureService == null || !captureService.isReady()) {
-                Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
-                val intent = Intent(this, RequestCaptureActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                startActivity(intent)
-                return
+    private fun runFullSequence() {
+        val captureService = ScreenCaptureService.instance
+
+        if (captureService == null || !captureService.isReady()) {
+            Toast.makeText(this, "الصلاحية متوقفة - جاري إعادة الطلب...", Toast.LENGTH_SHORT).show()
+            val intent = Intent(this, RequestCaptureActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            startActivity(intent)
+            return
+        }
 
-            thread {
-                try {
+        val accessibilityService = BotAccessibilityService.instance
+        if (accessibilityService == null) {
+            Toast.makeText(this, "خدمة الإتاحة مش مفعّلة (الزر ١)", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        Toast.makeText(this, "بدء تسلسل الهجوم الكامل...", Toast.LENGTH_SHORT).show()
+
+        thread {
+            for ((index, step) in attackSequence.withIndex()) {
+                val stepNumber = index + 1
+                var found = false
+                var attempts = 0
+
+                // نحاول عدة مرات (مش مرة وحدة بس) لأنه الشاشة ممكن تكون لسا بتتحمل
+                while (!found && attempts < 6) {
                     val templateBitmap = try {
-                        assets.open("template_attack_button.jpg").use { stream ->
-                            BitmapFactory.decodeStream(stream)
-                        }
+                        assets.open(step.templateFileName).use { s -> BitmapFactory.decodeStream(s) }
                     } catch (e: Exception) {
                         null
                     }
 
                     if (templateBitmap == null) {
-                        Handler(Looper.getMainLooper()).post {
-                            Toast.makeText(this, "فشل تحميل صورة القالب", Toast.LENGTH_LONG).show()
-                        }
+                        showToast("فشل تحميل قالب: ${step.templateFileName}")
                         return@thread
                     }
 
                     val screenBitmap = captureService.captureBitmapOnce()
                     if (screenBitmap == null) {
-                        Handler(Looper.getMainLooper()).post {
-                            val errorMsg = captureService.lastError ?: "سبب غير معروف"
-                            Toast.makeText(this, "فشل التقاط الشاشة: $errorMsg", Toast.LENGTH_LONG).show()
-                        }
+                        showToast("فشل التقاط الشاشة بالخطوة $stepNumber: ${captureService.lastError}")
                         return@thread
                     }
 
-                    // نحفظ نسخة من نفس الصورة يلي استخدمها البوت بالفحص، عشان نقدر نشوفها بالمعرض
-                    val savedPath = captureService.saveBitmapToPicturesClash(screenBitmap)
-
                     val result = ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.6)
 
-                    Handler(Looper.getMainLooper()).post {
-                        if (result.found) {
-                            val point = result.point
-                            if (point != null) {
-                                val accessibilityService = BotAccessibilityService.instance
-                                if (accessibilityService != null) {
-                                    accessibilityService.performTap(point.x, point.y)
-                                    Toast.makeText(
-                                        this,
-                                        "لقى الزر وضغطه! عند (${point.x.toInt()}, ${point.y.toInt()}) بثقة ${"%.2f".format(result.confidence)}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                } else {
-                                    Toast.makeText(
-                                        this,
-                                        "لقى الزر بس ما قدر يضغطه - خدمة الإتاحة مش مفعّلة (الزر ١)",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
-                        } else {
-                            Toast.makeText(
-                                this,
-                                "ما لقاه (أعلى ثقة: ${"%.2f".format(result.confidence)}) - محفوظة بالمعرض: $savedPath",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(this, "خطأ داخلي: ${e.javaClass.simpleName} - ${e.message}", Toast.LENGTH_LONG).show()
+                    if (result.found && result.point != null) {
+                        accessibilityService.performTap(result.point.x, result.point.y)
+                        showToast("خطوة $stepNumber (${step.description}): لقى وضغط ✅")
+                        found = true
+                        Thread.sleep(step.delayAfterMs)
+                    } else {
+                        attempts++
+                        Thread.sleep(500)
                     }
                 }
+
+                if (!found) {
+                    showToast("توقف عند خطوة $stepNumber (${step.description}) - ما لقاها بعد عدة محاولات")
+                    return@thread
+                }
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, "خطأ بالضغطة نفسها: ${e.javaClass.simpleName} - ${e.message}", Toast.LENGTH_LONG).show()
+
+            showToast("تم التسلسل الكامل بنجاح! 🎉")
+        }
+    }
+
+    private fun showToast(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
     }
 
