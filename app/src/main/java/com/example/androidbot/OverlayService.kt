@@ -153,17 +153,20 @@ class OverlayService : Service() {
         Toast.makeText(this, "بدء تسلسل الهجوم الكامل...", Toast.LENGTH_SHORT).show()
 
         thread {
-            // حماية شاملة: أي خطأ أو حتى نفاد ذاكرة لازم يظهر كرسالة، مش يختفي بصمت
             try {
-                // الخطوة 1: زر الهجوم الرئيسي
+                // الخطوة 1: زر الهجوم الرئيسي (الشاشة الرئيسية)
                 if (!tapWhenFound(captureService, accessibilityService, "template_attack_button.jpg", "زر الهجوم الرئيسي", 6)) return@thread
                 Thread.sleep(1500)
 
                 // الخطوة 2: زر البحث عن مطابقة
                 if (!tapWhenFound(captureService, accessibilityService, "template_search_button.jpg", "زر البحث عن مطابقة", 6)) return@thread
-                Thread.sleep(3000)
+                Thread.sleep(2000)
 
-                // الخطوة 3: فحص الموارد واختيار قرية مناسبة (أو تخطيها)
+                // الخطوة 3: زر تأكيد الدخول للمعركة (هجوم) - يظهر قبل شاشة الموارد
+                if (!tapWhenFound(captureService, accessibilityService, "template_battle_attack_button.jpg", "زر تأكيد الهجوم", 6)) return@thread
+                Thread.sleep(2000)
+
+                // الخطوة 4: فحص الموارد داخل المعركة، وتخطي القرى غير المناسبة
                 var villageAccepted = false
                 var skipAttempts = 0
 
@@ -181,7 +184,6 @@ class OverlayService : Service() {
                     val goldAmount = goldRegion?.let { TextReader.readNumber(it) } ?: 0L
                     val elixirAmount = elixirRegion?.let { TextReader.readNumber(it) } ?: 0L
 
-                    // نحرر الذاكرة فورًا - أهم سطر لمنع تراكم الصور بالذاكرة
                     goldRegion?.recycle()
                     elixirRegion?.recycle()
                     screenBitmap.recycle()
@@ -205,16 +207,9 @@ class OverlayService : Service() {
                     return@thread
                 }
 
-                showToast("لقى قرية مناسبة! جاري الهجوم...")
-                Thread.sleep(500)
-
-                // الخطوة 4: زر الهجوم بالمعركة
-                if (!tapWhenFound(captureService, accessibilityService, "template_battle_attack_button.jpg", "زر الهجوم بالمعركة", 8)) return@thread
-
-                showToast("تم التسلسل الكامل بنجاح! 🎉")
+                showToast("لقى قرية مناسبة بموارد كافية! التسلسل خلص 🎉")
 
             } catch (e: Throwable) {
-                // نلقط أي شي حتى نفاد الذاكرة (OutOfMemoryError) - عشان ما يختفي أي خطأ بصمت
                 showToast("خطأ عام أوقف التسلسل: ${e.javaClass.simpleName} - ${e.message}")
             }
         }
@@ -254,7 +249,6 @@ class OverlayService : Service() {
                 ImageMatcher.MatchResult(found = false)
             }
 
-            // نحرر الذاكرة فورًا بعد كل محاولة - أهم سطر لمنع النفاد
             templateBitmap.recycle()
             screenBitmap.recycle()
 
