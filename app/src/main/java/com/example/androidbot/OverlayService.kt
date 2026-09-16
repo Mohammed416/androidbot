@@ -207,7 +207,10 @@ class OverlayService : Service() {
                     return@thread
                 }
 
-                showToast("لقى قرية مناسبة بموارد كافية! التسلسل خلص 🎉")
+                showToast("لقى قرية مناسبة! جاري نشر الجيش...")
+                Thread.sleep(1000)
+                deployArmy(accessibilityService)
+                showToast("تم نشر الجيش! 🎉")
 
             } catch (e: Throwable) {
                 showToast("خطأ عام أوقف التسلسل: ${e.javaClass.simpleName} - ${e.message}")
@@ -262,6 +265,32 @@ class OverlayService : Service() {
         }
         showToast("ما لقى: $description بعد $maxAttempts محاولة")
         return false
+    }
+
+    /**
+     * نشر جيش بسيط: يختار أول نوع جندي بشريط الجيش، وينشره على نقاط
+     * بحواف الشاشة (يسار ويمين) - المنطقة المفتوحة برا سور القرية عادة،
+     * بدل النص يلي فيه القرية نفسها والنشر ممنوع فيه.
+     */
+    private fun deployArmy(accessibilityService: BotAccessibilityService) {
+        // ضغطة على أول نوع جندي بشريط الجيش تحت الشاشة
+        accessibilityService.performTap(280f, 990f)
+        Thread.sleep(400)
+
+        // نشر على الحافة اليسرى (منطقة مفتوحة برا القرية غالبًا)
+        val leftEdgeX = 80f
+        val rightEdgeX = 2260f
+        val deployYs = listOf(300f, 450f, 600f, 750f, 900f)
+
+        for (y in deployYs) {
+            accessibilityService.performTap(leftEdgeX, y)
+            Thread.sleep(250)
+        }
+
+        for (y in deployYs) {
+            accessibilityService.performTap(rightEdgeX, y)
+            Thread.sleep(250)
+        }
     }
 
     private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
