@@ -171,7 +171,6 @@ class OverlayService : Service() {
                 var skipAttempts = 0
 
                 while (!villageAccepted && skipAttempts < 30) {
-                    // ننتظر لحد ما أرقام الموارد تستقر (تخلص من تأثير العد التصاعدي)
                     val (goldAmount, elixirAmount) = readStableResources(captureService)
 
                     if (goldAmount == null || elixirAmount == null) {
@@ -293,24 +292,18 @@ class OverlayService : Service() {
     }
 
     /**
-     * نشر جيش بسيط: يختار أول نوع جندي بشريط الجيش، وينشره على نقاط
-     * بحواف الشاشة (يسار ويمين) - المنطقة المفتوحة برا سور القرية عادة.
+     * نشر جيش بسيط - على الحافة اليسرى بس، بعيد كليًا عن زاوية أسفل يمين
+     * الشاشة يلي فيها زر "التالي" (التخطي)، لتفادي أي ضغط غير مقصود عليه.
      */
     private fun deployArmy(accessibilityService: BotAccessibilityService) {
         accessibilityService.performTap(280f, 990f)
         Thread.sleep(400)
 
         val leftEdgeX = 80f
-        val rightEdgeX = 2260f
-        val deployYs = listOf(300f, 450f, 600f, 750f, 900f)
+        val deployYs = listOf(150f, 280f, 410f, 540f, 670f)
 
         for (y in deployYs) {
             accessibilityService.performTap(leftEdgeX, y)
-            Thread.sleep(250)
-        }
-
-        for (y in deployYs) {
-            accessibilityService.performTap(rightEdgeX, y)
             Thread.sleep(250)
         }
     }
