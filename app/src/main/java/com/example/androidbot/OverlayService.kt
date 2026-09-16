@@ -170,23 +170,14 @@ class OverlayService : Service() {
                 var villageAccepted = false
                 var skipAttempts = 0
 
-                while (!villageAccepted && skipAttempts < 12) {
-                    Thread.sleep(500)
-                    val screenBitmap = captureService.captureBitmapOnce()
-                    if (screenBitmap == null) {
-                        showToast("فشل التقاط الشاشة أثناء فحص الموارد: ${captureService.lastError}")
+                while (!villageAccepted && skipAttempts < 30) {
+                    // ننتظر لحد ما أرقام الموارد تستقر (تخلص من تأثير العد التصاعدي)
+                    val (goldAmount, elixirAmount) = readStableResources(captureService)
+
+                    if (goldAmount == null || elixirAmount == null) {
+                        showToast("فشل قراءة الموارد: ${captureService.lastError}")
                         return@thread
                     }
-
-                    val goldRegion = safeCrop(screenBitmap, 130, 130, 220, 60)
-                    val elixirRegion = safeCrop(screenBitmap, 130, 185, 220, 60)
-
-                    val goldAmount = goldRegion?.let { TextReader.readNumber(it) } ?: 0L
-                    val elixirAmount = elixirRegion?.let { TextReader.readNumber(it) } ?: 0L
-
-                    goldRegion?.recycle()
-                    elixirRegion?.recycle()
-                    screenBitmap.recycle()
 
                     showToast("قرية: ذهب $goldAmount - إكسير $elixirAmount")
 
@@ -198,7 +189,7 @@ class OverlayService : Service() {
                             showToast("ما قدر يلاقي زر التخطي")
                             return@thread
                         }
-                        Thread.sleep(2000)
+                        Thread.sleep(3500)
                     }
                 }
 
@@ -268,16 +259,47 @@ class OverlayService : Service() {
     }
 
     /**
+     * يقرأ الذهب والإكسير، ويعيد القراءة لحد ما يتأكد إن الرقم مستقر
+     * (نفس القيمة بقراءتين متتاليتين) - عشان يتجاوز تأثير العد التصاعدي
+     * (Animation) يلي بيصير لحظة ما تفتح كل قرية جديدة.
+     */
+    private fun readStableResources(captureService: ScreenCaptureService): Pair<Long?, Long?> {
+        var lastGold: Long? = null
+        var lastElixir: Long? = null
+
+        repeat(6) { attempt ->
+            Thread.sleep(if (attempt == 0) 1000 else 600)
+
+            val screenBitmap = captureService.captureBitmapOnce() ?: return Pair(null, null)
+            val goldRegion = safeCrop(screenBitmap, 130, 130, 220, 60)
+            val elixirRegion = safeCrop(screenBitmap, 130, 185, 220, 60)
+
+            val gold = goldRegion?.let { TextReader.readNumber(it) } ?: 0L
+            val elixir = elixirRegion?.let { TextReader.readNumber(it) } ?: 0L
+
+            goldRegion?.recycle()
+            elixirRegion?.recycle()
+            screenBitmap.recycle()
+
+            if (attempt > 0 && gold == lastGold && elixir == lastElixir && gold > 0) {
+                return Pair(gold, elixir)
+            }
+
+            lastGold = gold
+            lastElixir = elixir
+        }
+
+        return Pair(lastGold, lastElixir)
+    }
+
+    /**
      * نشر جيش بسيط: يختار أول نوع جندي بشريط الجيش، وينشره على نقاط
-     * بحواف الشاشة (يسار ويمين) - المنطقة المفتوحة برا سور القرية عادة،
-     * بدل النص يلي فيه القرية نفسها والنشر ممنوع فيه.
+     * بحواف الشاشة (يسار ويمين) - المنطقة المفتوحة برا سور القرية عادة.
      */
     private fun deployArmy(accessibilityService: BotAccessibilityService) {
-        // ضغطة على أول نوع جندي بشريط الجيش تحت الشاشة
         accessibilityService.performTap(280f, 990f)
         Thread.sleep(400)
 
-        // نشر على الحافة اليسرى (منطقة مفتوحة برا القرية غالبًا)
         val leftEdgeX = 80f
         val rightEdgeX = 2260f
         val deployYs = listOf(300f, 450f, 600f, 750f, 900f)
