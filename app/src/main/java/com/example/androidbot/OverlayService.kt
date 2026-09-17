@@ -193,9 +193,9 @@ class OverlayService : Service() {
                     return@thread
                 }
 
-                showToast("لقى قرية مناسبة! جاري نشر الجيش...")
+                showToast("لقى قرية مناسبة! جاري تحليل شكل القرية...")
                 Thread.sleep(1000)
-                deployArmy(accessibilityService)
+                deployArmy(captureService, accessibilityService)
                 showToast("تم نشر الجيش والتعاويذ! 🎉")
 
             } catch (e: Throwable) {
@@ -283,11 +283,10 @@ class OverlayService : Service() {
     }
 
     /**
-     * نشر مركّز بأعلى الشاشة بس - المنطقة المثبتة عمليًا إنها مفتوحة وقابلة
-     * للنشر (بعكس الجوانب والأسفل يلي فشلت بالتجربة الفعلية).
-     * فيها تأخير أطول بين كل ضغطتين (500ms) لضمان إن كل لمسة توصل وتسجل صح.
+     * نشر الجيش باستخدام نقاط مكتشفة تلقائيًا من شكل القرية الفعلي
+     * (عبر تحليل الخط الحدودي البرتقالي)، بدل إحداثيات ثابتة.
      */
-    private fun deployArmy(accessibilityService: BotAccessibilityService) {
+    private fun deployArmy(captureService: ScreenCaptureService, accessibilityService: BotAccessibilityService) {
         val dragonCard = 312f to 990f
         val balloonCard = 526f to 990f
         val babyDragonCard = 740f to 990f
@@ -297,41 +296,67 @@ class OverlayService : Service() {
         val freezeSpellCard = 2024f to 990f
         val rageSpellCard = 2238f to 990f
 
-        // كل نقاط النشر بأعلى الشاشة بس - منطقة مثبتة إنها مفتوحة فعليًا
-        val topPoints = listOf(300f, 600f, 900f, 1200f, 1500f, 1800f, 2100f).map { it to 140f }
-        val airTroopCards = listOf(dragonCard, balloonCard, babyDragonCard)
-
-        for ((index, point) in topPoints.withIndex()) {
-            val card = airTroopCards[index % airTroopCards.size]
-            accessibilityService.performTap(card.first, card.second)
-            Thread.sleep(500)
-            accessibilityService.performTap(point.first, point.second)
-            Thread.sleep(500)
+        val screenBitmap = captureService.captureBitmapOnce()
+        if (screenBitmap == null) {
+            showToast("فشل التقاط صورة القرية لتحليل شكلها")
+            return
         }
 
-        // الأبطال - بنفس منطقة أعلى الشاشة يلي أثبتت نجاحها
+        val deployPoints = DeploymentZoneDetector.findDeployPoints(screenBitmap, numPoints = 14, outwardOffset = 60.0)
+        screenBitmap.recycle()
+
+        if (deployPoints.isEmpty()) {
+            showToast("ما قدر يحدد شكل القرية - رجعنا لنقاط ثابتة احتياطية")
+            val fallback = listOf(600f, 900f, 1200f, 1500f, 1800f).map { it to 140f }
+            deployFromPoints(accessibilityService, fallback.map { DeploymentZoneDetector.DeployPoint(it.first, it.second) })
+        } else {
+            showToast("لقى ${deployPoints.size} نقطة نشر حوالين القرية")
+            deployFromPoints(accessibilityService, deployPoints)
+        }
+
+        // الأبطال بعد الجيش - بنفس أول نقطتين من النقاط المكتشفة
         val heroCards = listOf(queenCard, wardenCard, kingCard)
-        val heroDropPoints = listOf(500f to 140f, 1170f to 140f, 1850f to 140f)
-        for ((hero, point) in heroCards.zip(heroDropPoints)) {
+        val heroPoints = if (deployPoints.isNotEmpty()) deployPoints else listOf(DeploymentZoneDetector.DeployPoint(600f, 140f))
+        for ((index, hero) in heroCards.withIndex()) {
+            val point = heroPoints[index % heroPoints.size]
             accessibilityService.performTap(hero.first, hero.second)
             Thread.sleep(500)
-            accessibilityService.performTap(point.first, point.second)
+            accessibilityService.performTap(point.x, point.y)
             Thread.sleep(500)
         }
 
-        // ننتظر عشان الجيش يتحرك وينزل جوا القرية
         Thread.sleep(6000)
 
-        // التعاويذ - بمنتصف الشاشة تقريبًا (فوق مكان تجمع الجيش، مش خارج الخريطة)
+        val centerX = 1170f
+        val centerY = 400f
+
         accessibilityService.performTap(freezeSpellCard.first, freezeSpellCard.second)
         Thread.sleep(500)
-        accessibilityService.performTap(1170f, 400f)
+        accessibilityService.performTap(centerX, centerY)
         Thread.sleep(500)
 
         accessibilityService.performTap(rageSpellCard.first, rageSpellCard.second)
         Thread.sleep(500)
-        accessibilityService.performTap(1170f, 400f)
+        accessibilityService.performTap(centerX, centerY)
         Thread.sleep(500)
+    }
+
+    private fun deployFromPoints(
+        accessibilityService: BotAccessibilityService,
+        points: List<DeploymentZoneDetector.DeployPoint>
+    ) {
+        val dragonCard = 312f to 990f
+        val balloonCard = 526f to 990f
+        val babyDragonCard = 740f to 990f
+        val airTroopCards = listOf(dragonCard, balloonCard, babyDragonCard)
+
+        for ((index, point) in points.withIndex()) {
+            val card = airTroopCards[index % airTroopCards.size]
+            accessibilityService.performTap(card.first, card.second)
+            Thread.sleep(500)
+            accessibilityService.performTap(point.x, point.y)
+            Thread.sleep(500)
+        }
     }
 
     private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
