@@ -154,19 +154,15 @@ class OverlayService : Service() {
 
         thread {
             try {
-                // الخطوة 1: زر الهجوم الرئيسي (الشاشة الرئيسية)
                 if (!tapWhenFound(captureService, accessibilityService, "template_attack_button.jpg", "زر الهجوم الرئيسي", 6)) return@thread
                 Thread.sleep(1500)
 
-                // الخطوة 2: زر البحث عن مطابقة
                 if (!tapWhenFound(captureService, accessibilityService, "template_search_button.jpg", "زر البحث عن مطابقة", 6)) return@thread
                 Thread.sleep(2000)
 
-                // الخطوة 3: زر تأكيد الدخول للمعركة (هجوم) - يظهر قبل شاشة الموارد
                 if (!tapWhenFound(captureService, accessibilityService, "template_battle_attack_button.jpg", "زر تأكيد الهجوم", 6)) return@thread
                 Thread.sleep(2000)
 
-                // الخطوة 4: فحص الموارد داخل المعركة، وتخطي القرى غير المناسبة
                 var villageAccepted = false
                 var skipAttempts = 0
 
@@ -197,7 +193,7 @@ class OverlayService : Service() {
                     return@thread
                 }
 
-                showToast("لقى قرية مناسبة! جاري نشر الجيش الكامل...")
+                showToast("لقى قرية مناسبة! جاري نشر الجيش...")
                 Thread.sleep(1000)
                 deployArmy(accessibilityService)
                 showToast("تم نشر الجيش والتعاويذ! 🎉")
@@ -257,11 +253,6 @@ class OverlayService : Service() {
         return false
     }
 
-    /**
-     * يقرأ الذهب والإكسير، ويعيد القراءة لحد ما يتأكد إن الرقم مستقر
-     * (نفس القيمة بقراءتين متتاليتين) - عشان يتجاوز تأثير العد التصاعدي
-     * (Animation) يلي بيصير لحظة ما تفتح كل قرية جديدة.
-     */
     private fun readStableResources(captureService: ScreenCaptureService): Pair<Long?, Long?> {
         var lastGold: Long? = null
         var lastElixir: Long? = null
@@ -292,14 +283,11 @@ class OverlayService : Service() {
     }
 
     /**
-     * نشر الجيش الكامل حوالين محيط القرية بالكامل (فوق، تحت، يسار، يمين) -
-     * جيش "الهجوم الجوي الشامل": تنانين + بالونات + تنين صغير حوالين المحيط،
-     * الأبطال بعد الجيش، وتعاويذ التجميد والغضب بمنتصف القرية بعد ما الجيش يشتبك.
-     *
-     * كل الإحداثيات محسوبة من لقطة شاشة حقيقية بدقة 2340x1080.
+     * نشر مركّز بأعلى الشاشة بس - المنطقة المثبتة عمليًا إنها مفتوحة وقابلة
+     * للنشر (بعكس الجوانب والأسفل يلي فشلت بالتجربة الفعلية).
+     * فيها تأخير أطول بين كل ضغطتين (500ms) لضمان إن كل لمسة توصل وتسجل صح.
      */
     private fun deployArmy(accessibilityService: BotAccessibilityService) {
-        // مواقع بطاقات الجيش بالشريط السفلي
         val dragonCard = 312f to 990f
         val balloonCard = 526f to 990f
         val babyDragonCard = 740f to 990f
@@ -309,48 +297,41 @@ class OverlayService : Service() {
         val freezeSpellCard = 2024f to 990f
         val rageSpellCard = 2238f to 990f
 
-        // نقاط الانتشار حوالين محيط القرية بالكامل - بعيد عن الأزرار بالزوايا
-        val topPoints = listOf(600f, 900f, 1200f, 1500f, 1800f).map { it to 140f }
-        val rightPoints = listOf(220f, 380f, 540f, 700f).map { 2220f to it }
-        val bottomPoints = listOf(600f, 900f, 1200f, 1500f, 1800f).map { it to 850f }
-        val leftPoints = listOf(700f, 540f, 380f, 220f).map { 100f to it }
-
-        val perimeterPoints = topPoints + rightPoints + bottomPoints + leftPoints
+        // كل نقاط النشر بأعلى الشاشة بس - منطقة مثبتة إنها مفتوحة فعليًا
+        val topPoints = listOf(300f, 600f, 900f, 1200f, 1500f, 1800f, 2100f).map { it to 140f }
         val airTroopCards = listOf(dragonCard, balloonCard, babyDragonCard)
 
-        // ننشر التنانين والبالونات بالتناوب حوالين المحيط الكامل
-        for ((index, point) in perimeterPoints.withIndex()) {
+        for ((index, point) in topPoints.withIndex()) {
             val card = airTroopCards[index % airTroopCards.size]
             accessibilityService.performTap(card.first, card.second)
-            Thread.sleep(150)
+            Thread.sleep(500)
             accessibilityService.performTap(point.first, point.second)
-            Thread.sleep(200)
+            Thread.sleep(500)
         }
 
-        // ننزل الأبطال الثلاثة بعد الجيش، بمنطقة قريبة من الانتشار
+        // الأبطال - بنفس منطقة أعلى الشاشة يلي أثبتت نجاحها
         val heroCards = listOf(queenCard, wardenCard, kingCard)
-        val heroDropPoint = 150f to 400f
-        for (hero in heroCards) {
+        val heroDropPoints = listOf(500f to 140f, 1170f to 140f, 1850f to 140f)
+        for ((hero, point) in heroCards.zip(heroDropPoints)) {
             accessibilityService.performTap(hero.first, hero.second)
-            Thread.sleep(150)
-            accessibilityService.performTap(heroDropPoint.first, heroDropPoint.second)
-            Thread.sleep(200)
+            Thread.sleep(500)
+            accessibilityService.performTap(point.first, point.second)
+            Thread.sleep(500)
         }
 
-        // ننتظر شوي عشان الجيش يوصل ويشتبك مع الدفاعات قبل التعاويذ
+        // ننتظر عشان الجيش يتحرك وينزل جوا القرية
         Thread.sleep(6000)
 
-        // تعويذة التجميد بمنتصف القرية تقريبًا
+        // التعاويذ - بمنتصف الشاشة تقريبًا (فوق مكان تجمع الجيش، مش خارج الخريطة)
         accessibilityService.performTap(freezeSpellCard.first, freezeSpellCard.second)
-        Thread.sleep(150)
-        accessibilityService.performTap(1170f, 500f)
-        Thread.sleep(300)
+        Thread.sleep(500)
+        accessibilityService.performTap(1170f, 400f)
+        Thread.sleep(500)
 
-        // تعويذة الغضب بنفس المنطقة تقريبًا
         accessibilityService.performTap(rageSpellCard.first, rageSpellCard.second)
-        Thread.sleep(150)
-        accessibilityService.performTap(1170f, 500f)
-        Thread.sleep(300)
+        Thread.sleep(500)
+        accessibilityService.performTap(1170f, 400f)
+        Thread.sleep(500)
     }
 
     private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
