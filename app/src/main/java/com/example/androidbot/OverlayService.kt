@@ -20,6 +20,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import kotlin.concurrent.thread
 import kotlin.math.abs
+import kotlin.math.hypot
 
 class OverlayService : Service() {
 
@@ -193,9 +194,9 @@ class OverlayService : Service() {
                     return@thread
                 }
 
-                showToast("لقى قرية مناسبة! جاري تنفيذ استراتيجية الهجوم الجوي...")
+                showToast("لقى قرية مناسبة! جاري تحليل شريط الجيش والخريطة...")
                 Thread.sleep(1000)
-                executeEdragAttack(accessibilityService)
+                executeEdragAttack(captureService, accessibilityService)
                 showToast("تم تنفيذ الهجوم بالكامل! 🎉")
 
             } catch (e: Throwable) {
@@ -282,24 +283,92 @@ class OverlayService : Service() {
         return Pair(lastGold, lastElixir)
     }
 
-    /**
-     * استراتيجية هجوم مخصّصة بالكامل (Edrag): نشر 10 تنانين + بالونين + 4 أبطال
-     * دفعة واحدة عند نقطة الدخول، وبعدها تعاويذ غضب وتجميد بمواقيت وأماكن محددة
-     * حسب خطة المستخدم بالضبط. كل الإحداثيات محسوبة من لقطة شاشة معركة حقيقية.
-     */
-    private fun executeEdragAttack(accessibilityService: BotAccessibilityService) {
-        // مواقع بطاقات الجيش
-        val dragonCard = 427f to 990f
-        val balloonCard = 682f to 990f
-        val queenCard = 937f to 990f
-        val wardenCard = 1192f to 990f
-        val kingCard = 1447f to 990f
-        val petCard = 1702f to 990f
-        val freezeCard = 1957f to 990f
-        val rageCard = 2212f to 990f
+    data class CardLayout(
+        val dragonX: Float,
+        val balloonX: Float,
+        val queenX: Float,
+        val wardenX: Float,
+        val kingX: Float,
+        val petX: Float,
+        val rageX: Float?,
+        val freezeX: Float?
+    )
 
-        // نقاط الخريطة (1 إلى 7) كما حددها المستخدم
-        val point1 = 1025f to 232f
+    /**
+     * يحسب مواقع البطاقات من نفس شريط المعركة الحالية (يتجاهل بطاقات x0 الفاضية)،
+     * بافتراض إن ترتيب التدريب ثابت: تنانين → بالونات → أبطال → غضب → تجميد.
+     */
+    private fun computeCardLayout(quantityCards: List<TroopBarDetector.QuantityCard>): CardLayout? {
+        val nonEmpty = quantityCards.filter { it.quantity > 0 }.sortedBy { it.centerX }
+        if (nonEmpty.size < 2) return null
+
+        val dragon = nonEmpty[0]
+        val balloon = nonEmpty[1]
+        val pitch = balloon.centerX - dragon.centerX
+        if (pitch <= 10f) return null
+
+        val queenX = balloon.centerX + pitch
+        val wardenX = queenX + pitch
+        val kingX = wardenX + pitch
+        val petX = kingX + pitch
+        val afterHeroesX = petX + pitch * 0.5f
+
+        val spellCards = nonEmpty.filter { it.centerX > afterHeroesX }.sortedBy { it.centerX }
+
+        return CardLayout(
+            dragonX = dragon.centerX,
+            balloonX = balloon.centerX,
+            queenX = queenX,
+            wardenX = wardenX,
+            kingX = kingX,
+            petX = petX,
+            rageX = spellCards.getOrNull(0)?.centerX,
+            freezeX = spellCards.getOrNull(1)?.centerX
+        )
+    }
+
+    private fun nearestPoint(
+        target: Pair<Float, Float>,
+        candidates: List<DeploymentZoneDetector.DeployPoint>
+    ): Pair<Float, Float> {
+        if (candidates.isEmpty()) return target
+        val nearest = candidates.minByOrNull {
+            hypot((it.x - target.first).toDouble(), (it.y - target.second).toDouble())
+        }
+        return if (nearest != null) nearest.x to nearest.y else target
+    }
+
+    /**
+     * استراتيجية هجوم Edrag - مواقع البطاقات محسوبة ديناميكيًا من شريط
+     * المعركة الحالية، ونقطة دخول الجيش مصحّحة لأقرب نقطة نشر صحيحة فعليًا.
+     */
+    private fun executeEdragAttack(captureService: ScreenCaptureService, accessibilityService: BotAccessibilityService) {
+        val fullScreen = captureService.captureBitmapOnce()
+        if (fullScreen == null) {
+            showToast("فشل التقاط الشاشة لتحليل المعركة")
+            return
+        }
+
+        // تحليل شريط الجيش (نفس هاي المعركة بالضبط)
+        val barBitmap = safeCrop(fullScreen, 300, 900, 2040, 180)
+        val quantityCards = if (barBitmap != null) TroopBarDetector.detectQuantityCards(barBitmap) else emptyList()
+        barBitmap?.recycle()
+
+        val layout = computeCardLayout(quantityCards)
+        if (layout == null) {
+            showToast("ما قدر يحلل شريط الجيش - توقف الهجوم")
+            fullScreen.recycle()
+            return
+        }
+
+        showToast("لقى ${quantityCards.size} بطاقة بالشريط - جاري تحديد منطقة النشر...")
+
+        // كاشف منطقة النشر الصحيحة حوالين القرية
+        val validPoints = DeploymentZoneDetector.findDeployPoints(fullScreen, numPoints = 14, outwardOffset = 60.0)
+        fullScreen.recycle()
+
+        // نقاط الخريطة الأصلية كما حددها المستخدم
+        val intendedPoint1 = 1025f to 232f
         val point2 = 828f to 328f
         val point3 = 1093f to 328f
         val point4 = 888f to 452f
@@ -307,27 +376,44 @@ class OverlayService : Service() {
         val point6 = 988f to 570f
         val point7 = 1121f to 529f
 
-        // نشر الجيش كامل دفعة واحدة عند نقطة الدخول (نقطة 1)
+        // نصحح نقطة الدخول لأقرب نقطة نشر صالحة فعليًا (مش مكان جوا سور مباشرة)
+        val entryPoint = nearestPoint(intendedPoint1, validPoints)
+        if (validPoints.isNotEmpty()) {
+            showToast("نقطة الدخول المصححة: (${entryPoint.first.toInt()}, ${entryPoint.second.toInt()})")
+        } else {
+            showToast("ما لقى نقاط نشر - رح يجرب النقطة الأصلية")
+        }
+
+        val dragonCard = layout.dragonX to 990f
+        val balloonCard = layout.balloonX to 990f
+        val queenCard = layout.queenX to 990f
+        val wardenCard = layout.wardenX to 990f
+        val kingCard = layout.kingX to 990f
+        val petCard = layout.petX to 990f
+        val rageCard = (layout.rageX ?: 2212f) to 990f
+        val freezeCard = (layout.freezeX ?: 1957f) to 990f
+
+        // نشر الجيش كامل دفعة واحدة عند نقطة الدخول المصححة
         repeat(10) {
             accessibilityService.performTap(dragonCard.first, dragonCard.second)
-            Thread.sleep(120)
-            accessibilityService.performTap(point1.first, point1.second)
-            Thread.sleep(120)
+            Thread.sleep(150)
+            accessibilityService.performTap(entryPoint.first, entryPoint.second)
+            Thread.sleep(150)
         }
         repeat(2) {
             accessibilityService.performTap(balloonCard.first, balloonCard.second)
-            Thread.sleep(120)
-            accessibilityService.performTap(point1.first, point1.second)
-            Thread.sleep(120)
+            Thread.sleep(150)
+            accessibilityService.performTap(entryPoint.first, entryPoint.second)
+            Thread.sleep(150)
         }
         for (hero in listOf(queenCard, wardenCard, kingCard, petCard)) {
             accessibilityService.performTap(hero.first, hero.second)
-            Thread.sleep(150)
-            accessibilityService.performTap(point1.first, point1.second)
-            Thread.sleep(150)
+            Thread.sleep(180)
+            accessibilityService.performTap(entryPoint.first, entryPoint.second)
+            Thread.sleep(180)
         }
 
-        // لما الجيش يوصل منطقة النقطتين 2+3 - تعويذتين غضب (وحدة بكل نقطة)
+        // تعويذتين غضب عند 2+3
         Thread.sleep(4000)
         accessibilityService.performTap(rageCard.first, rageCard.second)
         Thread.sleep(200)
@@ -339,7 +425,7 @@ class OverlayService : Service() {
         accessibilityService.performTap(point3.first, point3.second)
         Thread.sleep(300)
 
-        // لما الجيش يوصل منطقة النقطتين 3+4 - تعويذتين غضب تانية
+        // تعويذتين غضب عند 3+4
         Thread.sleep(4000)
         accessibilityService.performTap(rageCard.first, rageCard.second)
         Thread.sleep(200)
@@ -351,7 +437,7 @@ class OverlayService : Service() {
         accessibilityService.performTap(point4.first, point4.second)
         Thread.sleep(300)
 
-        // لما الجيش يقرب من منتصف القرية - تجميد على 5 و6
+        // تجميد عند 5 و6
         Thread.sleep(4000)
         accessibilityService.performTap(freezeCard.first, freezeCard.second)
         Thread.sleep(200)
@@ -363,7 +449,7 @@ class OverlayService : Service() {
         accessibilityService.performTap(point6.first, point6.second)
         Thread.sleep(300)
 
-        // تعويذة نقطة 7 بتأخير 5 ثواني إضافية عن الباقي
+        // تجميد عند 7 بتأخير 5 ثواني إضافية
         Thread.sleep(5000)
         accessibilityService.performTap(freezeCard.first, freezeCard.second)
         Thread.sleep(200)
