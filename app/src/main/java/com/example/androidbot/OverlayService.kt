@@ -302,20 +302,20 @@ class OverlayService : Service() {
     }
 
     /**
-     * يقرأ عدد القطع المتبقية ("xN") فوق بطاقة معيّنة مباشرة من نفس اللقطة،
-     * عشان نعرف كم مرة ننشر (مفيد للقوات القابلة للتكديس زي التنانين).
+     * يقرأ عدد القطع المتبقية ("xN") فوق بطاقة معيّنة مباشرة من نفس اللقطة.
      * لو ما لقى رقم (بطاقة بطل/منطاد بدون عدّاد)، يرجّع 1 كقيمة افتراضية.
      */
     private fun readCardQuantity(screenBitmap: Bitmap, cardCenter: android.graphics.PointF): Int {
         val badgeRegion = safeCrop(
             screenBitmap,
             (cardCenter.x - 90).toInt(),
-            (cardCenter.y - 145).toInt(),
+            (cardCenter.y - 85).toInt(),
             180,
-            55
+            50
         ) ?: return 1
         val qty = TextReader.readNumber(badgeRegion)
         badgeRegion.recycle()
+        showToast("قراءة عدد التنانين: ${qty ?: "فشل"}")
         return if (qty != null && qty in 1..99) qty.toInt() else 1
     }
 
@@ -401,10 +401,10 @@ class OverlayService : Service() {
         }
 
         accessibilityService.performTap(cardPos.x, cardPos.y)
-        Thread.sleep(200)
+        Thread.sleep(350)
         accessibilityService.performTap(point.x, point.y)
-        Thread.sleep(300)
-        showToast("$description: تم النشر ✅")
+        Thread.sleep(400)
+        showToast("$description: ضغط عند (${point.x.toInt()}, ${point.y.toInt()})")
     }
 
     private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
