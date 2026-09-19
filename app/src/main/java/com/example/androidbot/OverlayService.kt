@@ -20,7 +20,6 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import kotlin.concurrent.thread
 import kotlin.math.abs
-import kotlin.math.hypot
 
 class OverlayService : Service() {
 
@@ -194,10 +193,10 @@ class OverlayService : Service() {
                     return@thread
                 }
 
-                showToast("لقى قرية مناسبة! جاري تحليل شريط الجيش والخريطة...")
+                showToast("لقى قرية مناسبة! جاري تنفيذ جيش الموارد_التنين الكهربائي...")
                 Thread.sleep(1000)
-                executeEdragAttack(captureService, accessibilityService)
-                showToast("تم تنفيذ الهجوم بالكامل! 🎉")
+                deployElectroDragonResourceArmy(captureService, accessibilityService)
+                showToast("تم نشر الجيش بالكامل! 🎉")
 
             } catch (e: Throwable) {
                 showToast("خطأ عام أوقف التسلسل: ${e.javaClass.simpleName} - ${e.message}")
@@ -283,178 +282,129 @@ class OverlayService : Service() {
         return Pair(lastGold, lastElixir)
     }
 
-    data class CardLayout(
-        val dragonX: Float,
-        val balloonX: Float,
-        val queenX: Float,
-        val wardenX: Float,
-        val kingX: Float,
-        val petX: Float,
-        val rageX: Float?,
-        val freezeX: Float?
-    )
-
     /**
-     * يحسب مواقع البطاقات من نفس شريط المعركة الحالية (يتجاهل بطاقات x0 الفاضية)،
-     * بافتراض إن ترتيب التدريب ثابت: تنانين → بالونات → أبطال → غضب → تجميد.
+     * يدور على بطاقة معيّنة بالصورة الحيّة الحالية عن طريق قالبها، ويرجع
+     * موقعها (مركز المطابقة) لو لقاها بثقة كافية.
      */
-    private fun computeCardLayout(quantityCards: List<TroopBarDetector.QuantityCard>): CardLayout? {
-        val nonEmpty = quantityCards.filter { it.quantity > 0 }.sortedBy { it.centerX }
-        if (nonEmpty.size < 2) return null
-
-        val dragon = nonEmpty[0]
-        val balloon = nonEmpty[1]
-        val pitch = balloon.centerX - dragon.centerX
-        if (pitch <= 10f) return null
-
-        val queenX = balloon.centerX + pitch
-        val wardenX = queenX + pitch
-        val kingX = wardenX + pitch
-        val petX = kingX + pitch
-        val afterHeroesX = petX + pitch * 0.5f
-
-        val spellCards = nonEmpty.filter { it.centerX > afterHeroesX }.sortedBy { it.centerX }
-
-        return CardLayout(
-            dragonX = dragon.centerX,
-            balloonX = balloon.centerX,
-            queenX = queenX,
-            wardenX = wardenX,
-            kingX = kingX,
-            petX = petX,
-            rageX = spellCards.getOrNull(0)?.centerX,
-            freezeX = spellCards.getOrNull(1)?.centerX
-        )
-    }
-
-    private fun nearestPoint(
-        target: Pair<Float, Float>,
-        candidates: List<DeploymentZoneDetector.DeployPoint>
-    ): Pair<Float, Float> {
-        if (candidates.isEmpty()) return target
-        val nearest = candidates.minByOrNull {
-            hypot((it.x - target.first).toDouble(), (it.y - target.second).toDouble())
+    private fun findCardPosition(screenBitmap: Bitmap, templateFileName: String): android.graphics.PointF? {
+        val templateBitmap = try {
+            assets.open(templateFileName).use { s -> BitmapFactory.decodeStream(s) }
+        } catch (e: Exception) {
+            return null
         }
-        return if (nearest != null) nearest.x to nearest.y else target
+        val result = try {
+            ImageMatcher.findTemplate(screenBitmap, templateBitmap, minConfidence = 0.55)
+        } catch (e: Exception) {
+            null
+        }
+        templateBitmap.recycle()
+        return if (result?.found == true) result.point else null
     }
 
     /**
-     * استراتيجية هجوم Edrag - مواقع البطاقات محسوبة ديناميكيًا من شريط
-     * المعركة الحالية، ونقطة دخول الجيش مصحّحة لأقرب نقطة نشر صحيحة فعليًا.
+     * يقرأ عدد القطع المتبقية ("xN") فوق بطاقة معيّنة مباشرة من نفس اللقطة،
+     * عشان نعرف كم مرة ننشر (مفيد للقوات القابلة للتكديس زي التنانين).
+     * لو ما لقى رقم (بطاقة بطل/منطاد بدون عدّاد)، يرجّع 1 كقيمة افتراضية.
      */
-    private fun executeEdragAttack(captureService: ScreenCaptureService, accessibilityService: BotAccessibilityService) {
-        val fullScreen = captureService.captureBitmapOnce()
-        if (fullScreen == null) {
-            showToast("فشل التقاط الشاشة لتحليل المعركة")
+    private fun readCardQuantity(screenBitmap: Bitmap, cardCenter: android.graphics.PointF): Int {
+        val badgeRegion = safeCrop(
+            screenBitmap,
+            (cardCenter.x - 90).toInt(),
+            (cardCenter.y - 145).toInt(),
+            180,
+            55
+        ) ?: return 1
+        val qty = TextReader.readNumber(badgeRegion)
+        badgeRegion.recycle()
+        return if (qty != null && qty in 1..99) qty.toInt() else 1
+    }
+
+    /**
+     * جيش الموارد_التنين الكهربائي:
+     * كل التنانين المتاحة (بالعدد الفعلي وقت التنفيذ) ← المنطاد الحجري
+     * ← الملكة ← الملك ← الآمر ← أمير المينيون.
+     * كل موقع بطاقة يتحدد حيًا عبر قالب صورته، فمش متأثر بتغيّر المستوى/الشكل.
+     */
+    private fun deployElectroDragonResourceArmy(
+        captureService: ScreenCaptureService,
+        accessibilityService: BotAccessibilityService
+    ) {
+        val screenForZone = captureService.captureBitmapOnce()
+        if (screenForZone == null) {
+            showToast("فشل التقاط الشاشة لتحليل منطقة النشر")
+            return
+        }
+        val deployPoints = DeploymentZoneDetector.findDeployPoints(screenForZone, numPoints = 16, outwardOffset = 60.0)
+        screenForZone.recycle()
+
+        if (deployPoints.isEmpty()) {
+            showToast("ما قدر يحدد منطقة نشر صالحة - توقف الهجوم")
             return
         }
 
-        // تحليل شريط الجيش (نفس هاي المعركة بالضبط)
-        val barBitmap = safeCrop(fullScreen, 300, 900, 2040, 180)
-        val quantityCards = if (barBitmap != null) TroopBarDetector.detectQuantityCards(barBitmap) else emptyList()
-        barBitmap?.recycle()
-
-        val layout = computeCardLayout(quantityCards)
-        if (layout == null) {
-            showToast("ما قدر يحلل شريط الجيش - توقف الهجوم")
-            fullScreen.recycle()
-            return
+        var pointIndex = 0
+        fun nextPoint(): DeploymentZoneDetector.DeployPoint {
+            val p = deployPoints[pointIndex % deployPoints.size]
+            pointIndex++
+            return p
         }
 
-        showToast("لقى ${quantityCards.size} بطاقة بالشريط - جاري تحديد منطقة النشر...")
+        // 1) كل التنانين المتاحة
+        val screenForDragon = captureService.captureBitmapOnce()
+        val dragonPos = screenForDragon?.let { findCardPosition(it, "template_card_dragon.jpg") }
+        val dragonQty = if (dragonPos != null && screenForDragon != null) readCardQuantity(screenForDragon, dragonPos) else 0
+        screenForDragon?.recycle()
 
-        // كاشف منطقة النشر الصحيحة حوالين القرية
-        val validPoints = DeploymentZoneDetector.findDeployPoints(fullScreen, numPoints = 14, outwardOffset = 60.0)
-        fullScreen.recycle()
-
-        // نقاط الخريطة الأصلية كما حددها المستخدم
-        val intendedPoint1 = 1025f to 232f
-        val point2 = 828f to 328f
-        val point3 = 1093f to 328f
-        val point4 = 888f to 452f
-        val point5 = 1230f to 433f
-        val point6 = 988f to 570f
-        val point7 = 1121f to 529f
-
-        // نصحح نقطة الدخول لأقرب نقطة نشر صالحة فعليًا (مش مكان جوا سور مباشرة)
-        val entryPoint = nearestPoint(intendedPoint1, validPoints)
-        if (validPoints.isNotEmpty()) {
-            showToast("نقطة الدخول المصححة: (${entryPoint.first.toInt()}, ${entryPoint.second.toInt()})")
+        if (dragonPos != null) {
+            showToast("لقى التنين - جاري نشر $dragonQty")
+            repeat(dragonQty) {
+                accessibilityService.performTap(dragonPos.x, dragonPos.y)
+                Thread.sleep(150)
+                val p = nextPoint()
+                accessibilityService.performTap(p.x, p.y)
+                Thread.sleep(150)
+            }
         } else {
-            showToast("ما لقى نقاط نشر - رح يجرب النقطة الأصلية")
+            showToast("ما لقى بطاقة التنين")
         }
 
-        val dragonCard = layout.dragonX to 990f
-        val balloonCard = layout.balloonX to 990f
-        val queenCard = layout.queenX to 990f
-        val wardenCard = layout.wardenX to 990f
-        val kingCard = layout.kingX to 990f
-        val petCard = layout.petX to 990f
-        val rageCard = (layout.rageX ?: 2212f) to 990f
-        val freezeCard = (layout.freezeX ?: 1957f) to 990f
+        // 2) المنطاد الحجري
+        deploySingleCard(captureService, accessibilityService, "template_card_siege.jpg", "المنطاد الحجري", nextPoint())
 
-        // نشر الجيش كامل دفعة واحدة عند نقطة الدخول المصححة
-        repeat(10) {
-            accessibilityService.performTap(dragonCard.first, dragonCard.second)
-            Thread.sleep(150)
-            accessibilityService.performTap(entryPoint.first, entryPoint.second)
-            Thread.sleep(150)
+        // 3) الملكة
+        deploySingleCard(captureService, accessibilityService, "template_card_queen.jpg", "ملكة الرماة", nextPoint())
+
+        // 4) الملك
+        deploySingleCard(captureService, accessibilityService, "template_card_king.jpg", "ملك البرابرة", nextPoint())
+
+        // 5) الآمر
+        deploySingleCard(captureService, accessibilityService, "template_card_warden.jpg", "الآمر الكبير", nextPoint())
+
+        // 6) أمير المينيون
+        deploySingleCard(captureService, accessibilityService, "template_card_pet.jpg", "أمير المينيون", nextPoint())
+    }
+
+    private fun deploySingleCard(
+        captureService: ScreenCaptureService,
+        accessibilityService: BotAccessibilityService,
+        templateFileName: String,
+        description: String,
+        point: DeploymentZoneDetector.DeployPoint
+    ) {
+        val screenBitmap = captureService.captureBitmapOnce()
+        val cardPos = screenBitmap?.let { findCardPosition(it, templateFileName) }
+        screenBitmap?.recycle()
+
+        if (cardPos == null) {
+            showToast("ما لقى بطاقة: $description")
+            return
         }
-        repeat(2) {
-            accessibilityService.performTap(balloonCard.first, balloonCard.second)
-            Thread.sleep(150)
-            accessibilityService.performTap(entryPoint.first, entryPoint.second)
-            Thread.sleep(150)
-        }
-        for (hero in listOf(queenCard, wardenCard, kingCard, petCard)) {
-            accessibilityService.performTap(hero.first, hero.second)
-            Thread.sleep(180)
-            accessibilityService.performTap(entryPoint.first, entryPoint.second)
-            Thread.sleep(180)
-        }
 
-        // تعويذتين غضب عند 2+3
-        Thread.sleep(4000)
-        accessibilityService.performTap(rageCard.first, rageCard.second)
+        accessibilityService.performTap(cardPos.x, cardPos.y)
         Thread.sleep(200)
-        accessibilityService.performTap(point2.first, point2.second)
+        accessibilityService.performTap(point.x, point.y)
         Thread.sleep(300)
-
-        accessibilityService.performTap(rageCard.first, rageCard.second)
-        Thread.sleep(200)
-        accessibilityService.performTap(point3.first, point3.second)
-        Thread.sleep(300)
-
-        // تعويذتين غضب عند 3+4
-        Thread.sleep(4000)
-        accessibilityService.performTap(rageCard.first, rageCard.second)
-        Thread.sleep(200)
-        accessibilityService.performTap(point3.first, point3.second)
-        Thread.sleep(300)
-
-        accessibilityService.performTap(rageCard.first, rageCard.second)
-        Thread.sleep(200)
-        accessibilityService.performTap(point4.first, point4.second)
-        Thread.sleep(300)
-
-        // تجميد عند 5 و6
-        Thread.sleep(4000)
-        accessibilityService.performTap(freezeCard.first, freezeCard.second)
-        Thread.sleep(200)
-        accessibilityService.performTap(point5.first, point5.second)
-        Thread.sleep(300)
-
-        accessibilityService.performTap(freezeCard.first, freezeCard.second)
-        Thread.sleep(200)
-        accessibilityService.performTap(point6.first, point6.second)
-        Thread.sleep(300)
-
-        // تجميد عند 7 بتأخير 5 ثواني إضافية
-        Thread.sleep(5000)
-        accessibilityService.performTap(freezeCard.first, freezeCard.second)
-        Thread.sleep(200)
-        accessibilityService.performTap(point7.first, point7.second)
-        Thread.sleep(300)
+        showToast("$description: تم النشر ✅")
     }
 
     private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
