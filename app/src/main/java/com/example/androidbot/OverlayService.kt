@@ -20,6 +20,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import kotlin.concurrent.thread
 import kotlin.math.abs
+import kotlin.math.hypot
 
 class OverlayService : Service() {
 
@@ -282,10 +283,6 @@ class OverlayService : Service() {
         return Pair(lastGold, lastElixir)
     }
 
-    /**
-     * يدور على بطاقة معيّنة بالصورة الحيّة الحالية عن طريق قالبها، ويرجع
-     * موقعها (مركز المطابقة) لو لقاها بثقة كافية.
-     */
     private fun findCardPosition(screenBitmap: Bitmap, templateFileName: String): android.graphics.PointF? {
         val templateBitmap = try {
             assets.open(templateFileName).use { s -> BitmapFactory.decodeStream(s) }
@@ -302,28 +299,38 @@ class OverlayService : Service() {
     }
 
     /**
-     * يقرأ عدد القطع المتبقية ("xN") فوق بطاقة معيّنة مباشرة من نفس اللقطة.
-     * لو ما لقى رقم (بطاقة بطل/منطاد بدون عدّاد)، يرجّع 1 كقيمة افتراضية.
+     * يقرأ عدد القطع المتبقية فوق بطاقة معيّنة - منطقة بحث أوسع هالمرة
+     * (200×120 بدل 180×50) عشان نضمن نلقط الرقم حتى لو موقعه انزاح شوي
+     * عن التخمين الأصلي.
      */
     private fun readCardQuantity(screenBitmap: Bitmap, cardCenter: android.graphics.PointF): Int {
         val badgeRegion = safeCrop(
             screenBitmap,
-            (cardCenter.x - 90).toInt(),
-            (cardCenter.y - 85).toInt(),
-            180,
-            50
+            (cardCenter.x - 100).toInt(),
+            (cardCenter.y - 160).toInt(),
+            200,
+            120
         ) ?: return 1
         val qty = TextReader.readNumber(badgeRegion)
         badgeRegion.recycle()
-        showToast("قراءة عدد التنانين: ${qty ?: "فشل"}")
         return if (qty != null && qty in 1..99) qty.toInt() else 1
     }
 
+    private fun nearestPoint(
+        target: Pair<Float, Float>,
+        candidates: List<DeploymentZoneDetector.DeployPoint>
+    ): Pair<Float, Float> {
+        if (candidates.isEmpty()) return target
+        val nearest = candidates.minByOrNull {
+            hypot((it.x - target.first).toDouble(), (it.y - target.second).toDouble())
+        }
+        return if (nearest != null) nearest.x to nearest.y else target
+    }
+
     /**
-     * جيش الموارد_التنين الكهربائي:
-     * كل التنانين المتاحة (بالعدد الفعلي وقت التنفيذ) ← المنطاد الحجري
-     * ← الملكة ← الملك ← الآمر ← أمير المينيون.
-     * كل موقع بطاقة يتحدد حيًا عبر قالب صورته، فمش متأثر بتغيّر المستوى/الشكل.
+     * جيش الموارد_التنين الكهربائي - الجيش كله (التنانين، المنطاد، الأبطال)
+     * ينزل **بمكان واحد متقارب** (مش موزّع عالمحيط بالكامل)، عشان يضل
+     * الجيش متجمّع ومنطقي حتى لو كاشف إطار القرية أخطأ ببعض النقاط.
      */
     private fun deployElectroDragonResourceArmy(
         captureService: ScreenCaptureService,
@@ -337,31 +344,46 @@ class OverlayService : Service() {
         val deployPoints = DeploymentZoneDetector.findDeployPoints(screenForZone, numPoints = 16, outwardOffset = 60.0)
         screenForZone.recycle()
 
+        // نختار نقطة دخول واحدة بس (أقرب نقطة صالحة لأعلى منتصف الشاشة -
+        // المنطقة يلي أثبتت نجاحها بالتجارب السابقة)
+        val preferredEntry = 1170f to 140f
+        val entryPoint = nearestPoint(preferredEntry, deployPoints)
+
         if (deployPoints.isEmpty()) {
-            showToast("ما قدر يحدد منطقة نشر صالحة - توقف الهجوم")
-            return
+            showToast("تحذير: ما قدر يحدد إطار القرية - رح يجرب نقطة افتراضية")
+        } else {
+            showToast("نقطة النشر: (${entryPoint.first.toInt()}, ${entryPoint.second.toInt()})")
         }
 
-        var pointIndex = 0
-        fun nextPoint(): DeploymentZoneDetector.DeployPoint {
-            val p = deployPoints[pointIndex % deployPoints.size]
-            pointIndex++
+        // نقاط قريبة من بعض حوالين نقطة الدخول - عشان الجيش ينتشر بمساحة صغيرة مش كل القرية
+        val clusterPoints = listOf(
+            entryPoint,
+            entryPoint.first - 80f to entryPoint.second + 20f,
+            entryPoint.first + 80f to entryPoint.second + 20f,
+            entryPoint.first - 40f to entryPoint.second - 30f,
+            entryPoint.first + 40f to entryPoint.second - 30f
+        )
+        var clusterIndex = 0
+        fun nextClusterPoint(): Pair<Float, Float> {
+            val p = clusterPoints[clusterIndex % clusterPoints.size]
+            clusterIndex++
             return p
         }
 
         // 1) كل التنانين المتاحة
         val screenForDragon = captureService.captureBitmapOnce()
         val dragonPos = screenForDragon?.let { findCardPosition(it, "template_card_dragon.jpg") }
-        val dragonQty = if (dragonPos != null && screenForDragon != null) readCardQuantity(screenForDragon, dragonPos) else 0
+        val dragonQty = if (dragonPos != null && screenForDragon != null) readCardQuantity(screenForDragon, dragonPos) else 1
         screenForDragon?.recycle()
 
         if (dragonPos != null) {
-            showToast("لقى التنين - جاري نشر $dragonQty")
+            showToast("التنين: لقاه، جاري نشر $dragonQty قطعة")
+            Thread.sleep(1500)
             repeat(dragonQty) {
                 accessibilityService.performTap(dragonPos.x, dragonPos.y)
                 Thread.sleep(150)
-                val p = nextPoint()
-                accessibilityService.performTap(p.x, p.y)
+                val p = nextClusterPoint()
+                accessibilityService.performTap(p.first, p.second)
                 Thread.sleep(150)
             }
         } else {
@@ -369,19 +391,19 @@ class OverlayService : Service() {
         }
 
         // 2) المنطاد الحجري
-        deploySingleCard(captureService, accessibilityService, "template_card_siege.jpg", "المنطاد الحجري", nextPoint())
+        deploySingleCard(captureService, accessibilityService, "template_card_siege.jpg", "المنطاد الحجري", nextClusterPoint())
 
         // 3) الملكة
-        deploySingleCard(captureService, accessibilityService, "template_card_queen.jpg", "ملكة الرماة", nextPoint())
+        deploySingleCard(captureService, accessibilityService, "template_card_queen.jpg", "ملكة الرماة", nextClusterPoint())
 
         // 4) الملك
-        deploySingleCard(captureService, accessibilityService, "template_card_king.jpg", "ملك البرابرة", nextPoint())
+        deploySingleCard(captureService, accessibilityService, "template_card_king.jpg", "ملك البرابرة", nextClusterPoint())
 
         // 5) الآمر
-        deploySingleCard(captureService, accessibilityService, "template_card_warden.jpg", "الآمر الكبير", nextPoint())
+        deploySingleCard(captureService, accessibilityService, "template_card_warden.jpg", "الآمر الكبير", nextClusterPoint())
 
         // 6) أمير المينيون
-        deploySingleCard(captureService, accessibilityService, "template_card_pet.jpg", "أمير المينيون", nextPoint())
+        deploySingleCard(captureService, accessibilityService, "template_card_pet.jpg", "أمير المينيون", nextClusterPoint())
     }
 
     private fun deploySingleCard(
@@ -389,7 +411,7 @@ class OverlayService : Service() {
         accessibilityService: BotAccessibilityService,
         templateFileName: String,
         description: String,
-        point: DeploymentZoneDetector.DeployPoint
+        point: Pair<Float, Float>
     ) {
         val screenBitmap = captureService.captureBitmapOnce()
         val cardPos = screenBitmap?.let { findCardPosition(it, templateFileName) }
@@ -401,10 +423,10 @@ class OverlayService : Service() {
         }
 
         accessibilityService.performTap(cardPos.x, cardPos.y)
-        Thread.sleep(350)
-        accessibilityService.performTap(point.x, point.y)
         Thread.sleep(400)
-        showToast("$description: ضغط عند (${point.x.toInt()}, ${point.y.toInt()})")
+        accessibilityService.performTap(point.first, point.second)
+        Thread.sleep(500)
+        showToast("$description: تم النشر ✅")
     }
 
     private fun safeCrop(bitmap: Bitmap, x: Int, y: Int, w: Int, h: Int): Bitmap? {
