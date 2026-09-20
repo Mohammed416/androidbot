@@ -132,6 +132,103 @@ class OverlayService : Service() {
 
         windowManager.addView(button, params)
         overlayButton = button
+
+        addDebugButton()
+    }
+
+    /**
+     * زر تشخيص منفصل تمامًا عن منطق الهجوم - بيلتقط الشاشة، يشغّل كاشف
+     * منطقة النشر بوضع Debug، ويحفظ صورة توضيحية بمجلد Pictures/Clash
+     * عشان تقدر تفحصها. ما بيضغط ولا بيهاجم أي شي.
+     */
+    private fun addDebugButton() {
+        val debugButton = Button(this).apply {
+            text = "🔍"
+            alpha = 0.85f
+        }
+
+        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = 100
+        params.y = 550
+
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var isDragging = false
+
+        debugButton.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - initialTouchX).toInt()
+                    val dy = (event.rawY - initialTouchY).toInt()
+                    if (abs(dx) > 25 || abs(dy) > 25) isDragging = true
+                    params.x = initialX + dx
+                    params.y = initialY + dy
+                    windowManager.updateViewLayout(view, params)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging) {
+                        runDeploymentDebugCapture()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        windowManager.addView(debugButton, params)
+    }
+
+    private fun runDeploymentDebugCapture() {
+        val captureService = ScreenCaptureService.instance
+        if (captureService == null || !captureService.isReady()) {
+            Toast.makeText(this, "لازم تفعّل التقاط الشاشة أول", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "جاري تحليل منطقة النشر...", Toast.LENGTH_SHORT).show()
+
+        thread {
+            val screenBitmap = captureService.captureBitmapOnce()
+            if (screenBitmap == null) {
+                showToast("فشل التقاط الشاشة: ${captureService.lastError}")
+                return@thread
+            }
+
+            val debugResult = DeploymentZoneDetector.findDeployPointsDebug(screenBitmap)
+            val savedPath = captureService.saveBitmapToPicturesClash(debugResult.debugBitmap)
+            screenBitmap.recycle()
+            debugResult.debugBitmap.recycle()
+
+            showToast(
+                "${if (debugResult.success) "نجح ✅" else "فشل ❌"}: ${debugResult.reason} - " +
+                        "محفوظة: $savedPath"
+            )
+        }
     }
 
     private fun runFullSequence() {
