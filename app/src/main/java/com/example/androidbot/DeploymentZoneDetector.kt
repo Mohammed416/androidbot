@@ -33,7 +33,7 @@ object DeploymentZoneDetector {
 
     private const val TOP_MARGIN_FRACTION = 0.10
     private const val BOTTOM_MARGIN_FRACTION = 0.15
-    private const val SIDE_MARGIN_FRACTION = 0.02
+    private const val SIDE_MARGIN_FRACTION = 0.09
 
     // مدى اللون الأخضر (عشب) - واسع شوي عشان يغطي درجتين العشب
     // المتبدّلتين (رقعة الشطرنج) يلي اللعبة بترسمها
